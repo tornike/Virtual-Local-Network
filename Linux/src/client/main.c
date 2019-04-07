@@ -15,6 +15,7 @@
 #include <unistd.h>
 
 char *myip;
+char *server_addr = "168.63.77.131"; // Must be changed.
 int sfd;
 int tunfd;
 
@@ -55,10 +56,10 @@ int create_adapter(char *name, int flags)
     return fd;
 }
 
-int configure_adapter(char *name)
+int configure_adapter(char *name, char *ip_addr)
 {
     int ip;
-    inet_pton(AF_INET, "10.1.1.1", &ip);
+    inet_pton(AF_INET, ip_addr, &ip);
 
     int mask;
     inet_pton(AF_INET, "255.255.255.0", &mask);
@@ -90,9 +91,10 @@ int configure_adapter(char *name)
         printf("Getting interface flags failed: %s\n", strerror(errno));
     }
 
-    ifr.ifr_flags |= IFF_UP | IFF_RUNNING;
+    printf("Flags %d\n", ifr.ifr_flags);
+    ifr.ifr_flags = IFF_UP | IFF_RUNNING | IFF_NOARP | IFF_POINTOPOINT;
     if (ioctl(sfd, SIOCSIFFLAGS, &ifr) < 0) {
-        printf("Setting nterface flags failed: %s\n", strerror(errno));
+        printf("Setting interface flags failed: %s\n", strerror(errno));
     }
 
     close(sfd);
@@ -104,13 +106,16 @@ void *recv_thread(void *arg)
 {
     struct sockaddr_in raddr;
     memset(&raddr, 0, sizeof(struct sockaddr_in));
+
     socklen_t slen = sizeof(struct sockaddr_in);
     while (100) {
         char buff[1024];
         int size =
             recvfrom(sfd, buff, 1024, 0, (struct sockaddr *)&raddr, &slen);
+
         char ip[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &raddr.sin_addr, (void *)&ip, INET_ADDRSTRLEN);
+
         printf("Received from %s:%d %d bytes\n", ip, raddr.sin_port, size);
 
         char saddr[INET_ADDRSTRLEN];
@@ -120,7 +125,7 @@ void *recv_thread(void *arg)
         inet_ntop(AF_INET, &((struct iphdr *)buff)->daddr, daddr,
                   INET_ADDRSTRLEN);
 
-        if (strcmp(ip, myip) == 0) {
+        if (strcmp(daddr, myip) == 0) {
             write(tunfd, buff, size);
         }
     }
@@ -132,7 +137,8 @@ void *send_thread(void *arg)
     memset(&saddr, 0, sizeof(struct sockaddr_in));
     saddr.sin_family = AF_INET;
     saddr.sin_port = htons(5000);
-    inet_pton(AF_INET, "192.168.0.101", &saddr.sin_addr.s_addr);
+    inet_pton(AF_INET, server_addr, &saddr.sin_addr.s_addr);
+
     while (100) {
         char buff[1024];
         int size = read(tunfd, buff, 1024);
@@ -153,21 +159,16 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
-    configure_adapter(adapter_name);
-
     myip = argv[1];
-    struct sockaddr_in addr;
-    int ip;
-    inet_pton(AF_INET, "192.168.0.101", &ip);
+    configure_adapter(adapter_name, myip);
 
+    struct sockaddr_in addr;
     addr.sin_family = AF_INET;
     addr.sin_port = htons(atoi(argv[2]));
-    addr.sin_addr.s_addr = ip;
+    inet_pton(AF_INET, "0.0.0.0", &addr.sin_addr.s_addr);
 
-    int server_fd = socket(AF_INET, SOCK_DGRAM, 0);
-    bind(server_fd, (struct sockaddr *)&addr, sizeof(struct sockaddr_in));
-
-    sfd = server_fd;
+    sfd = socket(AF_INET, SOCK_DGRAM, 0);
+    bind(sfd, (struct sockaddr *)&addr, sizeof(struct sockaddr_in));
 
     pthread_t rt;
     pthread_t wt;
