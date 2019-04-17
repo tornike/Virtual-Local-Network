@@ -20,10 +20,14 @@ struct ipaddr_utelement {
 };
 
 struct connection_utelement {
-    char addr[15];
+    pthread_t t;
+    int ufd;
+    int cfd;
     struct connection_utelement *next;
     struct connection_utelement *prev;
 };
+
+pthread_mutex_t ipm;
 
 struct ipaddr_utelement *available_addresses;
 
@@ -32,101 +36,105 @@ struct temp_worker_args {
     struct sockaddr_in *c_addr;
 };
 
-int ips[2];
-int ports[2];
-int used;
+void *keep_alive_worker(void *arg)
+{
+    int sockfd = *(int *)arg;
 
+    struct sockaddr_in recv_addr;
+
+    socklen_t addr_size = sizeof(struct sockaddr_in);
+
+    uint8_t buf[1024];
+    int first = 1;
+    while (1) {
+        recvfrom(sockfd, &buf, 1024, 0, (struct sockaddr *)&recv_addr,
+                 &addr_size);
+
+        struct vln_packet_header *packet = (struct vln_packet_header *)buf;
+        if (packet->type != KEEPALIVE) {
+            printf("NOT UDPKEEPALIVE\n");
+        } else {
+            printf("KEEPALIVE\n");
+            if (first) {
+                pthread_mutex_unlock(&ipm);
+                first = 0;
+            }
+        }
+    }
+}
+
+// TODO: error handling.
 void *worker(void *arg)
 {
-    struct sockaddr_in *c_addr = ((struct temp_worker_args *)arg)->c_addr;
-    int cfd = ((struct temp_worker_args *)arg)->cfd;
+    struct sockaddr_in c_addr; // = ((struct temp_worker_args *)arg)->c_addr;
+    int sockfd = ((struct connection_utelement *)arg)->cfd;
 
-    int ip = 0;
-    inet_pton(AF_INET, available_addresses->addr, &ip);
+    socklen_t c_addr_size = sizeof(struct sockaddr_in);
+    getpeername(sockfd, (struct sockaddr *)&c_addr, &c_addr_size);
+
+    // int ip = 0;
+    // inet_pton(AF_INET, available_addresses->addr, &ip);
+    // DL_DELETE(available_addresses, available_addresses);
 
     struct sockaddr_in uaddr;
     memset(&uaddr, 0, sizeof(struct sockaddr_in));
     uaddr.sin_family = AF_INET;
-    uaddr.sin_port = used == 1 ? ports[1] : ports[0];
+    uaddr.sin_port = 0;
     uaddr.sin_addr.s_addr = htonl(INADDR_ANY);
 
     int ufd = socket(AF_INET, SOCK_DGRAM, 0);
     bind(ufd, (struct sockaddr *)&uaddr, sizeof(struct sockaddr_in));
+    getsockname(ufd, (struct sockaddr *)&uaddr, &c_addr_size);
 
     printf("Bound\n");
 
-    uint8_t
-        buff[sizeof(struct vln_packet_header) + sizeof(struct vln_addr_paylod)];
-    ((struct vln_packet_header *)&buff)->type = ADDR;
-    ((struct vln_addr_paylod *)(&buff + sizeof(struct vln_packet_header)))
-        ->ip_addr = ip;
-    ((struct vln_addr_paylod *)(&buff + sizeof(struct vln_packet_header)))
-        ->port = used == 1 ? ports[1] : ports[0];
+    pthread_t udpt;
+    pthread_create(&udpt, NULL, keep_alive_worker, &ufd);
 
-    if (used) {
-        ips[1] = c_addr->sin_addr.s_addr;
-    } else {
-        ips[0] = c_addr->sin_addr.s_addr;
+    uint8_t buf[1024];
+    recv(sockfd, &buf, 1024, 0); // waiting for INIT
+
+    printf("RECVED\n");
+
+    struct vln_packet_header *p = (struct vln_packet_header *)&buf;
+    if (p->type != INIT) {
+        printf("NOT INIT\n");
+        exit(1);
     }
-    used = 1;
 
-    int sent = send(cfd, &buff, sizeof(buff), 0);
+    uint8_t buff[sizeof(struct vln_packet_header) +
+                 sizeof(struct vln_uaddr_paylod)];
+    ((struct vln_packet_header *)buff)->type = UADDR;
+    ((struct vln_packet_header *)buff)->payload_length =
+        sizeof(struct vln_uaddr_paylod);
+    ((struct vln_uaddr_paylod *)(buff + sizeof(struct vln_packet_header)))
+        ->port = htons(uaddr.sin_port);
+    printf("PORT %d\n", htons(uaddr.sin_port));
+
+    int sent = send(sockfd, buff, sizeof(buff), 0);
+    printf("send: %d\n", sent);
     assert(sent == sizeof(buff));
 
-    //-----------RETRANSMIT---------------
-    struct sockaddr_in saddr;
-    memset(&saddr, 0, sizeof(struct sockaddr_in));
-    saddr.sin_family = AF_INET;
+    pthread_mutex_lock(&ipm);
 
-    struct sockaddr_in raddr;
-    memset(&raddr, 0, sizeof(struct sockaddr_in));
-    socklen_t rslen = sizeof(struct sockaddr_in);
+    uint32_t ip;
+    inet_pton(AF_INET, available_addresses->addr, &ip);
+    DL_DELETE(available_addresses, available_addresses);
+
+    uint8_t buff2[sizeof(struct vln_packet_header) +
+                  sizeof(struct vln_addr_paylod)];
+    ((struct vln_packet_header *)buff2)->type = ADDR;
+    ((struct vln_packet_header *)buff2)->payload_length =
+        sizeof(struct vln_addr_paylod);
+    ((struct vln_addr_paylod *)(buff2 + sizeof(struct vln_packet_header)))
+        ->ip_addr = ip;
+
+    sent = send(sockfd, buff2, sizeof(buff2), 0);
+    printf("VADDR send: %d\n", sent);
+    assert(sent == sizeof(buff2));
 
     while (1) {
-        char buff[1024];
-        int size =
-            recvfrom(ufd, buff, 1024, 0, (struct sockaddr *)&raddr, &rslen);
-        //--------------------------------
-        char ip[INET_ADDRSTRLEN];
-        inet_ntop(AF_INET, &raddr.sin_addr, ip, INET_ADDRSTRLEN);
-        printf("Received from %s:%d %d bytes\n", ip, raddr.sin_port, size);
-        //--------------------------------
-
-        char v_saddr[INET_ADDRSTRLEN];
-        inet_ntop(AF_INET, (const void *)&((struct iphdr *)buff)->saddr,
-                  v_saddr, INET_ADDRSTRLEN);
-
-        char v_daddr[INET_ADDRSTRLEN];
-        inet_ntop(AF_INET, (const void *)&((struct iphdr *)buff)->daddr,
-                  v_daddr, INET_ADDRSTRLEN);
-
-        printf("Virtual Source addr %s\n", v_saddr);
-        printf("Virtual Destionation addr %s\n", v_daddr);
-        // if (strcmp(v_saddr, "10.1.1.1") == 0) {
-        //     ips[0] = raddr.sin_addr.s_addr;
-        //     ports[0] = raddr.sin_port;
-        //     printf("10.1.1.1 Stored %d\n", raddr.sin_port);
-        // } else if (strcmp(v_saddr, "10.1.1.2") == 0) {
-        //     ips[1] = raddr.sin_addr.s_addr;
-        //     ports[1] = raddr.sin_port;
-        //     printf("10.1.1.2 Stored %d\n", raddr.sin_port);
-        // }
-
-        if (strcmp(v_daddr, "10.1.1.1") == 0) {
-            saddr.sin_port = ports[0];
-            saddr.sin_addr.s_addr = ips[0];
-            int sent = sendto(ufd, buff, size, 0, (struct sockaddr *)&saddr,
-                              sizeof(struct sockaddr_in));
-            printf("Retransmitted1 %d bytes\n", sent);
-        } else if (strcmp(v_daddr, "10.1.1.2") == 0) {
-            saddr.sin_port = ports[1];
-            saddr.sin_addr.s_addr = ips[1];
-            int sent = sendto(ufd, buff, size, 0, (struct sockaddr *)&saddr,
-                              sizeof(struct sockaddr_in));
-            printf("Retransmitted2 %d bytes\n", sent);
-        } else {
-            printf("Some Packets Dropped\n");
-        }
+        recv(sockfd, buf, sizeof(buf), 0);
     }
 
     return NULL;
@@ -138,30 +146,29 @@ void recv_connections(int port)
     struct sockaddr_in s_addr, c_addr;
     socklen_t sockaddr_in_size = sizeof(struct sockaddr_in);
 
-    sfd = socket(AF_INET, SOCK_STREAM, 0);
+    sfd = socket(AF_INET, SOCK_STREAM, 0); // TODO: error handling.
+
+    int optval = 1;
+    setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(int));
 
     s_addr.sin_family = AF_INET;
     s_addr.sin_port = htons(port);
     s_addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
-    bind(sfd, (struct sockaddr *)&s_addr, sizeof(struct sockaddr_in));
-    listen(sfd, BACKLOG);
-
-    pthread_t t1;
-    pthread_t t2;
+    bind(sfd, (struct sockaddr *)&s_addr,
+         sizeof(struct sockaddr_in)); // TODO: error handling.
+    listen(sfd, BACKLOG); // TODO: error handling.
 
     while (1) {
-        cfd = accept(sfd, (struct sockaddr *)&c_addr, &sockaddr_in_size);
+        cfd = accept(sfd, (struct sockaddr *)&c_addr,
+                     &sockaddr_in_size); // TODO: error handling.
 
-        struct temp_worker_args args;
-        args.c_addr = &c_addr;
-        args.cfd = cfd;
+        struct connection_utelement *con =
+            malloc(sizeof(struct connection_utelement));
 
-        if (used) {
-            pthread_create(&t2, NULL, worker, &args);
-        } else {
-            pthread_create(&t1, NULL, worker, &args);
-        }
+        con->cfd = cfd;
+
+        pthread_create(&con->t, NULL, worker, con);
     }
 }
 
@@ -191,9 +198,8 @@ int init()
     // DL_COUNT(available_addresses, tmp, count);
     // printf("Address Count: %d\n", count);
 
-    ports[0] = 51000;
-    ports[1] = 51001;
-    used = 0;
+    pthread_mutex_init(&ipm, NULL);
+
     return 0;
 }
 
@@ -201,7 +207,7 @@ int main(int argc, char **argv)
 {
     init();
 
-    recv_connections(5000);
+    recv_connections(33507);
 
     return 0;
 }
