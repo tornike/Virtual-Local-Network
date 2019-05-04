@@ -1,12 +1,18 @@
 #ifndef __VLN_PROTOCOL__
 #define __VLN_PROTOCOL__
 
-#include <stdlib.h>
+#include <stdint.h>
 
 #define INIT 1
-#define ADDR 2
-#define KEEPALIVE 3
-#define UADDR 4
+#define INITS 2
+#define CONNECT 3
+#define CONNECTS 4
+#define ADDR 5
+#define KEEPALIVE 6
+#define UADDR 7
+
+#define VLN_VIRTUALADDR 128
+#define VLN_SERVER 64
 
 typedef uint8_t VLN_PACKET_TYPE;
 
@@ -15,11 +21,15 @@ struct vln_packet_header {
     uint32_t payload_length;
 } __attribute__((packed));
 
-struct vln_addr_paylod {
+struct vln_vaddr_payload {
     uint32_t ip_addr;
+    /*
+        VIRTUAL ADDR, SERVER, UNUSED FLAGS ...
+    */
+    uint8_t flags;
 } __attribute__((packed));
 
-struct vln_uaddr_paylod {
+struct vln_uaddr_payload {
     uint16_t port;
 } __attribute__((packed));
 
