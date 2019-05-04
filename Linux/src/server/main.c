@@ -99,16 +99,23 @@ void *worker(void *arg)
             int con_count = 0;
             DL_COUNT(connections, con, con_count);
 
-            struct vln_vaddr_payload vaddrs[con_count];
+            uint8_t buff[con_count * sizeof(struct vln_vaddr_payload) +
+                         sizeof(struct vln_packet_header)];
+            struct vln_packet_header *header = buff;
+            struct vln_vaddr_payload *vaddrs =
+                buff + sizeof(struct vln_packet_header);
 
-            struct vln_vaddr_payload *iter = vaddrs;
+            header->type = INITS;
+            header->payload_length =
+                con_count * sizeof(struct vln_vaddr_payload);
+
             DL_FOREACH(connections, con)
             {
-                iter->flags = iter->ip_addr == serverip ?
-                                  VLN_SERVER | VLN_VIRTUALADDR :
-                                  0;
-                iter->ip_addr = con->vln_addr;
-                iter++;
+                vaddrs->flags = vaddrs->ip_addr == serverip ?
+                                    VLN_SERVER | VLN_VIRTUALADDR :
+                                    0;
+                vaddrs->ip_addr = con->vln_addr;
+                vaddrs++;
             }
             pthread_mutex_unlock(&connectionsm);
 
@@ -240,7 +247,7 @@ int init()
 
     uint32_t servip;
     inet_pton(AF_INET, available_addresses->addr, &servip);
-    printf("SERVER ADDR: %s %d\n", available_addresses->addr, serverip);
+    printf("SERVER ADDR: %s %d\n", available_addresses->addr, servip);
     DL_DELETE(available_addresses, available_addresses);
 
     struct connection_utelement *con =
