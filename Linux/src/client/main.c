@@ -19,7 +19,7 @@
 #define BUFFERSIZE 1024
 
 char *myip;
-char *server_addr = "52.236.32.68"; // Must be changed.
+char *server_addr = "168.63.36.239"; // Must be changed.
 int sfd;
 int tunfd;
 
@@ -161,6 +161,7 @@ void *send_keep_alive(void *arg)
     struct vln_packet_header keep_alive;
     keep_alive.payload_length = 0;
     keep_alive.type = KEEPALIVE;
+    uint8_t buff[BUFFERSIZE];
     struct sockaddr_in servaddr;
     servaddr.sin_family = AF_INET;
     servaddr.sin_port = htons(temp->port);
@@ -170,7 +171,11 @@ void *send_keep_alive(void *arg)
         sendto(temp->sfd, (struct vln_packet_header *)&keep_alive,
                sizeof(struct vln_packet_header), 0,
                (const struct sockaddr *)&servaddr, sizeof(servaddr));
-        sleep(10);
+        sleep(3);
+        printf("Wait...\n");
+        recvfrom(temp->sfd, &buff, BUFFERSIZE, 0, NULL, 0);
+        struct vln_packet_header *pak = (struct vln_packet_header *)&buff;
+        printf("recv: %d\n", pak->type);
     }
 }
 
@@ -207,29 +212,34 @@ void connect_network_tcp()
         exit(1);
     }
     while (1) {
+        printf("recv\n");
         recv_buff = recv(sockfd, &buff, BUFFERSIZE, 0);
-        VLN_PACKET_TYPE type = ((struct vln_packet_header *)buff)->type;
+        struct vln_packet_header *header = ((struct vln_packet_header *)buff);
+        VLN_PACKET_TYPE type = header->type;
+        printf("Type: %d\n", type);
         if (type == UADDR) {
             printf("Receive UADDR\n");
-            uint16_t port =
-                ((struct vln_uaddr_paylod *)(buff +
-                                             sizeof(struct vln_packet_header)))
-                    ->port;
+            // uint16_t port =
+            //     ((struct vln_uaddr_paylod *)(buff +
+            //                                  sizeof(struct
+            //                                  vln_packet_header)))
+            //         ->port;
 
-            int sockfd = connect_network_udp();
+            // int sockfd = connect_network_udp();
 
-            struct TEMP temp;
-            temp.port = port;
-            temp.sfd = sockfd;
+            // struct TEMP temp;
+            // temp.port = port;
+            // temp.sfd = sockfd;
 
-            pthread_t wu;
-            pthread_create(&wu, NULL, send_keep_alive, &temp);
+            // pthread_t wu;
+            // pthread_create(&wu, NULL, send_keep_alive, &temp);
             printf("Send Keep Alive\n");
 
         } else if (type == ADDR) {
             printf("Receive ADDR\n");
-            struct vln_addr_paylod *paylod =
-                ((struct vln_addr_paylod *)(buff +
+            // printf("Receive ADDR: %d\n", type);
+            struct vln_vaddr_payload *paylod = ((
+                struct vln_vaddr_payload *)(buff +
                                             sizeof(struct vln_packet_header)));
 
             struct sockaddr_in *addr;
@@ -260,6 +270,22 @@ void connect_network_tcp()
                 printf("Set Mask Address\n");
             }
 
+        } else if (type == INITS) {
+            printf("Enter: INITS\n");
+            int struct_count =
+                header->payload_length / sizeof(struct vln_vaddr_payload);
+            struct vln_vaddr_payload *paylod = ((
+                struct vln_vaddr_payload *)(buff +
+                                            sizeof(struct vln_packet_header)));
+            struct vln_vaddr_payload *temp = paylod;
+            for (size_t i = 0; i < struct_count; i++) {
+                // inet_pton(AF_INET, "0.0.0.0", &addr.sin_addr.s_addr);
+                char ip[15];
+                inet_ntop(AF_INET, &temp->ip_addr, &ip, 15);
+                printf("IP: %s\n", ip);
+                temp = temp + 1;
+            }
+
         } else {
             printf("Invalid Type!\n");
         }
@@ -287,12 +313,12 @@ int main(int argc, char **argv)
     sfd = socket(AF_INET, SOCK_DGRAM, 0);
     bind(sfd, (struct sockaddr *)&addr, sizeof(struct sockaddr_in));
 
-    pthread_t rt;
-    pthread_t wt;
+    // pthread_t rt;
+    // pthread_t wt;
 
-    pthread_create(&rt, NULL, recv_thread, NULL);
-    pthread_create(&wt, NULL, send_thread, NULL);
-    printf("Create Tunnel Interface\n");
+    // pthread_create(&rt, NULL, recv_thread, NULL);
+    // pthread_create(&wt, NULL, send_thread, NULL);
+    // printf("Create Tunnel Interface\n");
     connect_network_tcp();
 
     pthread_exit(NULL);
