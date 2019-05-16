@@ -8,7 +8,7 @@ SRC = $(wildcard *.c)
 OBJ = $(patsubst %.c, $(OBJECT_DIR)%.o, $(SRC))
 
 $(OBJECT_DIR)%.o: %.c
-	$(CC) $(CFLAGS_RELEASE) $< -o $@
+	$(CC) $(CFLAGS_DEBUG) $< -o $@
 
 all: $(OBJECT_DIR)server
 

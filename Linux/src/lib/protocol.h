@@ -10,10 +10,11 @@
 #define HOSTSR 4
 #define CONNECT 5 /* Request For Connect */
 #define CONNECT_ACK 6
+#define CONNECT_TO_SERVER 7
 
-#define ADDR 7
-#define KEEPALIVE 8
-#define UADDR 9
+#define ADDR 8
+#define KEEPALIVE 9
+#define UADDR 10
 
 /* Flags */
 #define VLN_VIRTUALADDR 128
