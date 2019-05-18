@@ -9,8 +9,6 @@
 #define HOSTS 3
 #define HOSTSR 4
 #define CONNECT 5 /* Request For Connect */
-#define CONNECT_ACK 6
-#define CONNECT_TO_SERVER 7
 
 #define ADDR 8
 #define KEEPALIVE 9
@@ -27,6 +25,11 @@ struct vln_packet_header {
     uint32_t payload_length;
 } __attribute__((packed));
 
+struct vln_initr_payload {
+    uint32_t vaddr;
+    uint32_t vmaskaddr;
+} __attribute__((packed));
+
 struct vln_vaddr_payload {
     uint32_t ip_addr;
     /*
@@ -39,9 +42,19 @@ struct vln_uaddr_payload {
     uint16_t port;
 } __attribute__((packed));
 
-struct vln_connect_payload {
+struct vln_server_connect_payload { /* Connect packet payload for server */
     vln_connection_type con_type;
     uint32_t vaddr;
 } __attribute__((packed));
+
+struct vln_connect_payload { /* Connect packet payload for client */
+    vln_connection_type con_type;
+    uint32_t vaddr; /* visac unda daukavshirdes */
+    uint32_t raddr; /* razec unda gaugzavnos traffici */
+    uint16_t rport;
+} __attribute__((packed));
+
+#define PACKET_PAYLOAD(packet)                                                 \
+    ((uint8_t *)packet + sizeof(struct vln_packet_header))
 
 #endif

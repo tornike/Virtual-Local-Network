@@ -9,15 +9,16 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 
-#include "../lib/list.h"
 #include "../lib/protocol.h"
 #include "../lib/uthash.h"
+#include "../lib/utlist.h"
 
 #define BACKLOG 10
 
 struct ipaddr {
     char addr[15];
-    struct list_elem elem;
+    struct ipaddr *next;
+    struct ipaddr *prev;
 };
 
 struct server_connection {
@@ -29,12 +30,11 @@ struct server_connection {
     UT_hash_handle hh;
 };
 
-struct list_elem *available_addresses;
+struct ipaddr *available_addresses;
+pthread_mutex_t ipm;
 struct server_connection *server_connections;
 int server_connections_count;
-
 pthread_mutex_t connectionsm;
-pthread_mutex_t ipm;
 
 uint32_t serverip;
 int serverudpfd;
@@ -43,9 +43,7 @@ uint32_t get_available_address()
 {
     uint32_t ip = 0;
     pthread_mutex_lock(&ipm);
-    inet_pton(AF_INET,
-              list_entry(available_addresses, struct ipaddr, elem)->addr,
-              &ip); // TODO
+    inet_pton(AF_INET, available_addresses->addr, &ip); // TODO
     DL_DELETE(available_addresses, available_addresses);
     pthread_mutex_unlock(&ipm);
     return ip;
@@ -80,95 +78,109 @@ void *worker(void *arg)
             return NULL; // TODO
         }
 
-        struct vln_packet_header *p = (struct vln_packet_header *)&recv_buff;
-        if (p->type == INIT) {
+        struct vln_packet_header *rpacket =
+            (struct vln_packet_header *)&recv_buff;
+        switch (rpacket->type) {
+        case INIT: {
+            assert(rpacket->payload_length == 0);
             printf("INIT RECVED\n");
 
             if (scon->vaddr == 0) {
-                scon->vaddr = get_available_address(); // TODO: empty list and
+                scon->vaddr = get_available_address(); // TODO: empty list or
                                                        // already assigned.
                 HASH_ADD_INT(server_connections, vaddr, scon);
-                server_connections++;
+                server_connections_count++;
             } else {
                 printf("ERROR: Address already assigned\n");
-                // ERROR: Already assigned.
+                // TODO: ERROR: Already assigned.
             }
 
-            uint8_t packet[sizeof(struct vln_packet_header) + sizeof(uint32_t)];
-            struct vln_packet_header *header =
-                (struct vln_packet_header *)packet;
-            header->type = INITR;
-            header->payload_length = sizeof(uint32_t);
-            uint32_t *payload =
-                (uint32_t *)(packet + sizeof(struct vln_packet_header));
-            *payload = scon->vaddr;
+            uint8_t spacket[sizeof(struct vln_packet_header) +
+                            sizeof(struct vln_initr_payload)];
+            struct vln_packet_header *sheader =
+                (struct vln_packet_header *)spacket;
+            struct vln_initr_payload *spayload =
+                (struct vln_initr_payload *)PACKET_PAYLOAD(spacket);
+            sheader->type = INITR;
+            sheader->payload_length = sizeof(struct vln_initr_payload);
+            spayload->vaddr = scon->vaddr;
+            spayload->vmaskaddr = 0;
 
-            int sent = send(scon->sockfd, (void *)packet, sizeof(packet), 0);
-            if (sent != sizeof(packet)) {
+            int sent = send(scon->sockfd, (void *)spacket, sizeof(spacket), 0);
+            if (sent != sizeof(spacket)) {
                 printf("BOLOMDE VER GAIGZAVNA\n");
             } else {
                 printf("INITR Sent %d\n", sent);
             }
-        } else if (p->type == HOSTS) {
+            break;
+        }
+        case HOSTS: {
+            assert(rpacket->payload_length == 0);
+            printf("HOSTS RECVED\n");
 
             pthread_mutex_lock(&connectionsm);
 
             int payload_size =
                 server_connections_count * sizeof(struct vln_vaddr_payload);
-            uint8_t buff[payload_size + sizeof(struct vln_packet_header)];
-            struct vln_packet_header *header = (struct vln_packet_header *)buff;
-            struct vln_vaddr_payload *vaddrs =
-                (struct vln_vaddr_payload *)(buff +
-                                             sizeof(struct vln_packet_header));
 
-            header->type = HOSTSR;
-            header->payload_length = payload_size;
+            uint8_t spacket[sizeof(struct vln_packet_header) + payload_size];
+            struct vln_packet_header *sheader =
+                (struct vln_packet_header *)spacket;
+            struct vln_vaddr_payload *vaddrs =
+                (struct vln_vaddr_payload *)PACKET_PAYLOAD(spacket);
+            sheader->type = HOSTSR;
+            sheader->payload_length = payload_size;
 
             struct server_connection *server_con_elem;
             for (server_con_elem = server_connections; server_con_elem != NULL;
                  server_con_elem = server_con_elem->hh.next) {
-                vaddrs->flags = vaddrs->ip_addr == serverip ?
-                                    VLN_SERVER | VLN_VIRTUALADDR :
-                                    0;
+                if (server_con_elem->vaddr == scon->vaddr) {
+                    continue;
+                }
+                vaddrs->flags = 0;
                 vaddrs->ip_addr = server_con_elem->vaddr;
-                printf("%u\n", vaddrs->ip_addr);
                 vaddrs++;
             }
+
+            vaddrs->flags = VLN_SERVER | VLN_VIRTUALADDR;
+            vaddrs->ip_addr = serverip;
+
             pthread_mutex_unlock(&connectionsm);
 
-            int sent = send(scon->sockfd, (void *)buff, sizeof(buff), 0);
-            if (sent != sizeof(buff)) {
+            int sent = send(scon->sockfd, (void *)spacket, sizeof(spacket), 0);
+            if (sent != sizeof(spacket)) {
                 printf("BOLOMDE VER GAIGZAVNA\n");
             } else {
-                printf("Sent %d\n", sent);
+                printf("HOSTSR SENT\n");
             }
-        } else if (p->type == CONNECT) {
-            assert(p->payload_length == sizeof(struct vln_connect_payload));
+            break;
+        }
+        case CONNECT: {
+            assert(rpacket->payload_length ==
+                   sizeof(struct vln_server_connect_payload));
+            printf("CONNECT RECVED\n");
 
-            struct vln_connect_payload *payload =
-                (struct vln_connect_payload *)(recv_buff +
-                                               sizeof(
-                                                   struct vln_packet_header));
+            struct vln_server_connect_payload *rpayload =
+                (struct vln_server_connect_payload *)PACKET_PAYLOAD(rpacket);
+
+            if (rpayload->vaddr == serverip)
+                break;
+
             struct server_connection *pcon; // TODO error check.
-            HASH_FIND_INT(server_connections, &payload->vaddr, pcon);
+            HASH_FIND_INT(server_connections, &rpayload->vaddr, pcon);
+            if (pcon == NULL)
+                printf("NULLLLLLLLLLLLLLLLL\n");
 
-            if (payload->con_type == PYRAMID) {
-                payload->vaddr = pcon->vaddr;
-                int sent = send(
-                    pcon->sockfd, recv_buff,
-                    sizeof(struct vln_packet_header) + p->payload_length, 0);
-                if (sent != sizeof(sizeof(struct vln_packet_header) +
-                                   p->payload_length)) {
-                    printf("BOLOMDE VER GAIGZAVNA\n");
-                } else {
-                    printf("Sent %d\n", sent);
-                }
-            } else if (p->type == CONNECT_ACK) {
-                assert(p->payload_length == sizeof(struct vln_connect_payload));
+            uint8_t spacket[sizeof(struct vln_packet_header) +
+                            sizeof(struct vln_connect_payload)];
+            struct vln_packet_header *sheader =
+                (struct vln_packet_header *)spacket;
+            struct vln_connect_payload *spayload =
+                (struct vln_connect_payload *)PACKET_PAYLOAD(spacket);
+            sheader->type = CONNECT;
+            sheader->payload_length = sizeof(struct vln_connect_payload);
 
-                struct vln_connect_payload *payload =
-                    (struct vln_connect_payload
-                         *)(recv_buff + sizeof(struct vln_packet_header));
+            if (rpayload->con_type == PYRAMID) {
                 if (serverudpfd == 0) {
                     serverudpfd = socket(AF_INET, SOCK_DGRAM, 0);
 
@@ -180,91 +192,39 @@ void *worker(void *arg)
                     bind(serverudpfd, (struct sockaddr *)&addr,
                          sizeof(struct sockaddr_in));
                 }
+                spayload->vaddr = scon->vaddr;
+                spayload->raddr = 0; // TODO
+                spayload->rport = htons(33508);
+                spayload->con_type = PYRAMID;
 
-                int payload_size = sizeof(struct vln_uaddr_payload);
-                uint8_t buff[payload_size + sizeof(struct vln_packet_header)];
-                struct vln_packet_header *header =
-                    (struct vln_packet_header *)buff;
-                struct vln_uaddr_payload *serverport =
-                    (struct vln_uaddr_payload *)(buff +
-                                                 sizeof(
-                                                     struct vln_packet_header));
+                int sent = send(pcon->sockfd, spacket,
+                                sizeof(struct vln_packet_header) +
+                                    sheader->payload_length,
+                                0);
 
-                header->payload_length = payload_size;
-                header->type = CONNECT_TO_SERVER;
+                spayload->vaddr = pcon->vaddr;
 
-                serverport->port = htons(33508);
+                sent = send(scon->sockfd, spacket,
+                            sizeof(struct vln_packet_header) +
+                                sheader->payload_length,
+                            0);
 
-                struct server_connection *pcon; // TODO error check.
-                HASH_FIND_INT(server_connections, &payload->vaddr, pcon);
-
-                // TODO: add virtual addresses to connections and start
-                // listening.
-
-                send(pcon->sockfd, &buff, sizeof(buff), 0);
-                send(scon->sockfd, &buff, sizeof(buff), 0);
-
+                if (sent != sizeof(sizeof(struct vln_packet_header) +
+                                   rpacket->payload_length)) {
+                    printf("BOLOMDE VER GAIGZAVNA\n");
+                } else {
+                    printf("Sent %d\n", sent);
+                }
             } else {
                 printf("ERROR: Unknown Connection Type\n");
             }
-        } else {
+            break;
+        }
+        default:
             printf("ERROR: Unknown Packet Type\n");
+            return NULL;
         }
     }
-
-    // int ip = 0;
-    // inet_pton(AF_INET, available_addresses->addr, &ip);
-    // DL_DELETE(available_addresses, available_addresses);
-
-    // struct sockaddr_in uaddr;
-    // memset(&uaddr, 0, sizeof(struct sockaddr_in));
-    // uaddr.sin_family = AF_INET;
-    // uaddr.sin_port = 0;
-    // uaddr.sin_addr.s_addr = htonl(INADDR_ANY);
-
-    // int ufd = socket(AF_INET, SOCK_DGRAM, 0);
-    // bind(ufd, (struct sockaddr *)&uaddr, sizeof(struct sockaddr_in));
-    // getsockname(ufd, (struct sockaddr *)&uaddr, &c_addr_size);
-
-    // pthread_t udpt;
-    // pthread_create(&udpt, NULL, keep_alive_worker, &ufd);
-
-    // uint8_t buff[sizeof(struct vln_packet_header) +
-    //              sizeof(struct vln_uaddr_paylod)];
-    // ((struct vln_packet_header *)buff)->type = UADDR;
-    // ((struct vln_packet_header *)buff)->payload_length =
-    //     sizeof(struct vln_uaddr_paylod);
-    // ((struct vln_uaddr_paylod *)(buff + sizeof(struct
-    // vln_packet_header)))
-    //     ->port = htons(uaddr.sin_port);
-    // printf("PORT %d\n", htons(uaddr.sin_port));
-
-    // int sent = send(sockfd, buff, sizeof(buff), 0);
-    // printf("send: %d\n", sent);
-    // assert(sent == sizeof(buff));
-
-    // pthread_mutex_lock(&ipm);
-
-    // uint32_t ip;
-    // inet_pton(AF_INET, available_addresses->addr, &ip);
-    // DL_DELETE(available_addresses, available_addresses);
-
-    // uint8_t buff2[sizeof(struct vln_packet_header) +
-    //               sizeof(struct vln_addr_paylod)];
-    // ((struct vln_packet_header *)buff2)->type = ADDR;
-    // ((struct vln_packet_header *)buff2)->payload_length =
-    //     sizeof(struct vln_addr_paylod);
-    // ((struct vln_addr_paylod *)(buff2 + sizeof(struct
-    // vln_packet_header)))
-    //     ->ip_addr = ip;
-
-    // sent = send(sockfd, buff2, sizeof(buff2), 0);
-    // printf("VADDR send: %d\n", sent);
-    // assert(sent == sizeof(buff2));
-
-    // while (1) {
-    //     recv(sockfd, buf, sizeof(buf), 0);
-    // }
 
     return NULL;
 }
@@ -318,23 +278,19 @@ int init()
     strcpy(addr2->addr, "10.1.1.2");
     strcpy(addr3->addr, "10.1.1.3");
 
-    DL_APPEND(available_addresses, &addr1->elem);
-    DL_APPEND(available_addresses, &addr2->elem);
-    DL_APPEND(available_addresses, &addr3->elem);
+    DL_APPEND(available_addresses, addr1);
+    DL_APPEND(available_addresses, addr2);
+    DL_APPEND(available_addresses, addr3);
 
     int count = 0;
-    struct list_elem *tmp;
+    struct ipaddr *tmp;
     DL_COUNT(available_addresses, tmp, count);
     printf("Address Count: %d\n", count);
 
-    struct ipaddr *server_addr =
-        list_entry(available_addresses, struct ipaddr, elem);
+    struct ipaddr *server_addr = available_addresses;
     inet_pton(AF_INET, server_addr->addr, &serverip);
     printf("SERVER ADDR: %s %d\n", server_addr->addr, serverip);
     DL_DELETE(available_addresses, available_addresses);
-
-    // DL_COUNT(available_addresses, tmp, count);
-    // printf("Address Count: %d\n", count);
 
     serverudpfd = 0;
     pthread_mutex_init(&ipm, NULL);
