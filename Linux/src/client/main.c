@@ -14,12 +14,15 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include "../connection.h"
 #include "../lib/protocol.h"
+#include "../lib/tcpwrapper.h"
 
 #define BUFFERSIZE 1024
 
 char *myip;
-char *server_addr = "168.63.36.239"; // Must be changed.
+char *server_addr = "35.228.37.164"; // Must be changed.
+int server_port_temp = 33507; // Must be changed.
 int sfd;
 int tunfd;
 
@@ -128,8 +131,8 @@ void *send_thread(void *arg)
     while (100) {
         char buff[BUFFERSIZE];
         int size = read(tunfd, buff, BUFFERSIZE);
-        int sent = sendto(sfd, buff, size, 0, (struct sockaddr *)&saddr,
-                          sizeof(struct sockaddr_in));
+        sendto(sfd, buff, size, 0, (struct sockaddr *)&saddr,
+               sizeof(struct sockaddr_in));
     }
 }
 
@@ -179,13 +182,78 @@ void *send_keep_alive(void *arg)
     }
 }
 
+int add_tunnel_interface(int port)
+{
+    char adapter_name[IFNAMSIZ];
+    strcpy(adapter_name, "testint1");
+
+    tunfd = create_adapter(adapter_name, IFF_TUN | IFF_NO_PI);
+    if (tunfd < 0) {
+        printf("Creating interface failed: %s\n", strerror(errno));
+        return EXIT_FAILURE;
+    }
+
+    configure_adapter(adapter_name);
+
+    struct sockaddr_in addr;
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    inet_pton(AF_INET, "0.0.0.0", &addr.sin_addr.s_addr);
+
+    sfd = socket(AF_INET, SOCK_DGRAM, 0);
+    bind(sfd, (struct sockaddr *)&addr, sizeof(struct sockaddr_in));
+
+    pthread_t rt;
+    pthread_t wt;
+
+    pthread_create(&rt, NULL, recv_thread, NULL);
+    pthread_create(&wt, NULL, send_thread, NULL);
+    return EXIT_SUCCESS;
+}
+
+int add_vaddr_tunnel_interface(struct vln_vaddr_payload *paylod)
+{
+
+    struct sockaddr_in *addr;
+    struct ifreq ifr;
+
+    strcpy(ifr.ifr_name, "testint1");
+
+    addr = (struct sockaddr_in *)&ifr.ifr_addr;
+    addr->sin_addr.s_addr = paylod->ip_addr;
+    addr->sin_family = AF_INET;
+
+    if (ioctl(sfd, SIOCSIFADDR, &ifr) < 0) {
+        printf("Setting IP address failed: %s\n", strerror(errno));
+        return -1;
+    } else {
+        printf("Set Inet\n");
+    }
+
+    int mask;
+    // shesacvlelia
+    inet_pton(AF_INET, "255.255.255.0", &mask);
+
+    addr = (struct sockaddr_in *)&ifr.ifr_netmask;
+    addr->sin_addr.s_addr = mask;
+    addr->sin_family = AF_INET;
+
+    if (ioctl(sfd, SIOCSIFNETMASK, &ifr) < 0) {
+        printf("Setting mask address failed: %s\n", strerror(errno));
+        return -1;
+    } else {
+        printf("Set Mask Address\n");
+    }
+    return 1;
+}
+
 void connect_network_tcp()
 {
-    int sockfd, recv_buff;
-    int server_port = 33507; ///////////////// Server Port
+    int sockfd;
+    int server_port = server_port_temp;
     char *tcp_server_addr = server_addr;
-    uint8_t buff[BUFFERSIZE];
     struct sockaddr_in server_addr;
+
     memset(&server_addr, 0, sizeof(server_addr));
 
     if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
@@ -202,135 +270,114 @@ void connect_network_tcp()
         perror("connect");
         exit(1);
     }
+    init_tcpwrapper(sockfd, BUFFERSIZE);
 
-    struct vln_packet_header init;
-    init.type = INIT;
-    init.payload_length = 0;
-    if (send(sockfd, (void *)&init, sizeof(struct vln_packet_header), 0) ==
-        -1) {
-        perror("send");
-        exit(1);
+    struct vln_packet_header sheader;
+    sheader.type = INIT;
+    sheader.payload_length = 0;
+
+    if (send_wrap((void *)&sheader, sizeof(struct vln_packet_header))) {
+        printf("error send_wrap INIT\n");
+    } else {
+        printf("send_wrap INIT\n");
     }
+
+    vln_packet_type type;
     while (1) {
         printf("recv\n");
-        recv_buff = recv(sockfd, &buff, BUFFERSIZE, 0);
-        struct vln_packet_header *header = ((struct vln_packet_header *)buff);
-        VLN_PACKET_TYPE type = header->type;
+        struct vln_packet_header rheader;
+        if (recv_wrap((void *)&rheader, sizeof(struct vln_packet_header))) {
+            type = 0;
+        } else {
+            type = rheader.type;
+        }
         printf("Type: %d\n", type);
-        if (type == UADDR) {
-            printf("Receive UADDR\n");
-            // uint16_t port =
-            //     ((struct vln_uaddr_paylod *)(buff +
-            //                                  sizeof(struct
-            //                                  vln_packet_header)))
-            //         ->port;
+
+        if (type == CONNECT) {
+            printf("Receive CONNECT\n");
+
+            struct vln_connect_payload rpaylod;
+            if (recv_wrap((void *)&rpaylod, sizeof(struct vln_connect_payload)))
+                printf("error recv_wrap CONNECT_TO_SERVER \n");
+
+            char ip[15]; ////
+            inet_ntop(AF_INET, &rpaylod.vaddr, &ip, 15); ///
+            printf("IP: %s\n", ip);
 
             // int sockfd = connect_network_udp();
 
-            // struct TEMP temp;
-            // temp.port = port;
-            // temp.sfd = sockfd;
+        } else if (type == INITR) {
+            printf("Receive INITR\n");
 
-            // pthread_t wu;
-            // pthread_create(&wu, NULL, send_keep_alive, &temp);
-            printf("Send Keep Alive\n");
+            struct vln_vaddr_payload rpayload;
+            if (recv_wrap((void *)&rpayload, sizeof(struct vln_initr_payload)))
+                printf("error recv_wrap INITR \n");
 
-        } else if (type == ADDR) {
-            printf("Receive ADDR\n");
-            // printf("Receive ADDR: %d\n", type);
-            struct vln_vaddr_payload *paylod = ((
-                struct vln_vaddr_payload *)(buff +
-                                            sizeof(struct vln_packet_header)));
+            int tunnel_interface = add_vaddr_tunnel_interface(&rpayload);
 
-            struct sockaddr_in *addr;
-            struct ifreq ifr;
+            if (tunnel_interface) {
 
-            strcpy(ifr.ifr_name, "testint1");
+                struct vln_packet_header sheader;
+                sheader.payload_length = 0;
+                sheader.type = HOSTS;
 
-            addr = (struct sockaddr_in *)&ifr.ifr_addr;
-            addr->sin_addr.s_addr = paylod->ip_addr;
-            addr->sin_family = AF_INET;
-
-            if (ioctl(sfd, SIOCSIFADDR, &ifr) < 0) {
-                printf("Setting IP address failed: %s\n", strerror(errno));
-            } else {
-                printf("Set Inet\n");
+                if (send_wrap((void *)&sheader,
+                              sizeof(struct vln_packet_header))) {
+                    printf("error send_wrap HOSTS\n");
+                } else {
+                    printf("send_wrap HOSTS\n");
+                }
             }
-
-            int mask;
-            inet_pton(AF_INET, "255.255.255.0", &mask);
-
-            addr = (struct sockaddr_in *)&ifr.ifr_netmask;
-            addr->sin_addr.s_addr = mask;
-            addr->sin_family = AF_INET;
-
-            if (ioctl(sfd, SIOCSIFNETMASK, &ifr) < 0) {
-                printf("Setting mask address failed: %s\n", strerror(errno));
-            } else {
-                printf("Set Mask Address\n");
-            }
-
-        } else if (type == INITS) {
-            printf("Enter: INITS\n");
+        } else if (type == HOSTSR) {
+            printf("Enter: HOSTSR\n");
             int struct_count =
-                header->payload_length / sizeof(struct vln_vaddr_payload);
-            struct vln_vaddr_payload *paylod = ((
-                struct vln_vaddr_payload *)(buff +
-                                            sizeof(struct vln_packet_header)));
-            struct vln_vaddr_payload *temp = paylod;
+                rheader.payload_length / sizeof(struct vln_vaddr_payload);
+
+            uint8_t spacket[sizeof(struct vln_server_connect_payload) +
+                            sizeof(struct vln_packet_header)];
+
+            struct vln_packet_header *sheader =
+                (struct vln_packet_header *)spacket;
+            sheader->payload_length = sizeof(struct vln_server_connect_payload);
+            sheader->type = CONNECT;
+
+            struct vln_server_connect_payload *spayload =
+                (struct vln_server_connect_payload
+                     *)(spacket + sizeof(struct vln_packet_header));
+
+            spayload->con_type = PYRAMID;
+
             for (size_t i = 0; i < struct_count; i++) {
-                // inet_pton(AF_INET, "0.0.0.0", &addr.sin_addr.s_addr);
-                char ip[15];
-                inet_ntop(AF_INET, &temp->ip_addr, &ip, 15);
-                printf("IP: %s\n", ip);
-                temp = temp + 1;
+                struct vln_vaddr_payload rpayload;
+                if (recv_wrap((void *)&rpayload,
+                              sizeof(struct vln_vaddr_payload)))
+                    printf("error recv_wrap HOSTSR \n");
+                char ip[15]; ////
+                inet_ntop(AF_INET, &rpayload.ip_addr, &ip, 15); ///
+                printf("IP: %s\n", ip); ///
+
+                spayload->vaddr = rpayload.ip_addr;
+
+                if (send_wrap(spacket, sizeof(spacket))) {
+                    printf("error send_wrap HOSTSR: %lu\n", i);
+                } else {
+                    printf("send_wrap HOSTSR: %lu\n", i);
+                }
             }
 
         } else {
             printf("Invalid Type!\n");
+            break;
         }
     }
 }
 
 int main(int argc, char **argv)
 {
-    char adapter_name[IFNAMSIZ];
-    strcpy(adapter_name, "testint1");
-
-    tunfd = create_adapter(adapter_name, IFF_TUN | IFF_NO_PI);
-    if (tunfd < 0) {
-        printf("Creating interface failed: %s\n", strerror(errno));
-        return EXIT_FAILURE;
-    }
-
-    configure_adapter(adapter_name);
-
-    struct sockaddr_in addr;
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(atoi(argv[2]));
-    inet_pton(AF_INET, "0.0.0.0", &addr.sin_addr.s_addr);
-
-    sfd = socket(AF_INET, SOCK_DGRAM, 0);
-    bind(sfd, (struct sockaddr *)&addr, sizeof(struct sockaddr_in));
-
-    // pthread_t rt;
-    // pthread_t wt;
-
-    // pthread_create(&rt, NULL, recv_thread, NULL);
-    // pthread_create(&wt, NULL, send_thread, NULL);
-    // printf("Create Tunnel Interface\n");
+    add_tunnel_interface(0);
     connect_network_tcp();
 
     pthread_exit(NULL);
 
     return 0;
 }
-// struct sockaddr_in *addr;
-//     addr = (struct sockaddr_in *)&ifr.ifr_addr;
-//     addr->sin_addr.s_addr = ip;
-//     addr->sin_family = AF_INET;
-
-//     if (ioctl(sfd, SIOCSIFADDR, &ifr) < 0) {
-//         printf("Setting IP address failed: %s\n", strerror(errno));
-//         return -1;
-//     }

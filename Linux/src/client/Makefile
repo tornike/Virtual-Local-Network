@@ -4,21 +4,26 @@ CFLAGS_DEBUG = -Wall -g -c
 LIBS = -lpthread
 
 OBJECT_DIR = ../../build/client/
+SRC_DIR = ./ ../ ../lib/
 SRC = $(wildcard *.c)
 OBJ = $(patsubst %.c, $(OBJECT_DIR)%.o, $(SRC))
-
-$(OBJECT_DIR)%.o: %.c
-	$(CC) $(CFLAGS_RELEASE) $< -o $@
+OBJ1 = main.o tcpwrapper.o
 
 all: $(OBJECT_DIR)client
 
-$(OBJECT_DIR)client: $(OBJ)
+$(OBJECT_DIR)main.o: main.c
+	$(CC) $(CFLAGS_DEBUG) $< -o $@
+
+$(OBJECT_DIR)tcpwrapper.o: ../lib/tcpwrapper.c
+	$(CC) $(CFLAGS_DEBUG) $< -o $@
+
+$(OBJECT_DIR)client: $(OBJECT_DIR)main.o $(OBJECT_DIR)tcpwrapper.o
 	$(CC) $^ -o $(OBJECT_DIR)$@ $(LIBS)
 
 clean:
 	rm $(OBJECT_DIR)*
 
 test:
-	echo $(OBJ)
+	echo $(wildcard ../lib/*.c) $(wildcard *.c)
 
 	
