@@ -96,20 +96,21 @@ static void *recv_worker(void *arg)
                slot->used_size);
 
         if (header->type == DATA) {
+            printf("Data Recvd!!!\n");
             recv_buffer->write_idx = (recv_buffer->write_idx + 1) % MAX_PACKETS;
             sem_post(&recv_buffer->used_slots);
         } else if (header->type == RETRANSMIT) {
-            printf("Retransmit RECVD\n");
+            printf("Retransmit Recvd\n");
             router_transmit(slot->buffer, slot->used_size);
             sem_post(&recv_buffer->free_slots);
             continue;
         } else if (header->type == KEEPALIVE) {
-            printf("KEEPALIVE RECVD\n");
+            printf("KEEPALIVE Recvd\n");
             sem_post(&recv_buffer->free_slots);
             continue;
         } else if (header->type == INIT) {
-            printf("INIT RECVD\n");
-            printf("VADDR %ul\n", payload->vaddr);
+            printf("Init Recvd\n");
+            printf("Vaddr %ul\n", payload->vaddr);
             uint32_t bigen_vaddr = htobe32(payload->vaddr);
             int key = bigen_vaddr % 10;
 
@@ -245,7 +246,7 @@ int router_add_connection(vln_connection_type ctype, uint32_t vaddr,
     inet_ntop(AF_INET, &vaddr, &ip, INET_ADDRSTRLEN); ///
     printf("Added connection to IP: %s %d %d\n", ip, ncon->raddr, ncon->rport);
 
-    if (ncon->rport != 0)
+    if (ncon->rport != 0 && ncon->con_type == P2P)
         send_init(ncon);
 
     return 0;
@@ -310,15 +311,19 @@ int router_receive(void *buffer, size_t size)
 {
     sem_wait(&recv_buffer->used_slots);
     struct buffer_slot *slot = &recv_buffer->slots[recv_buffer->read_idx];
+
+    size_t real_size =
+        size > slot->used_size - sizeof(struct vln_data_packet_header) ?
+            slot->used_size - sizeof(struct vln_data_packet_header) :
+            size;
+
     memcpy(buffer, slot->buffer + sizeof(struct vln_data_packet_header),
-           size > slot->used_size - sizeof(struct vln_data_packet_header) ?
-               slot->used_size - sizeof(struct vln_data_packet_header) :
-               size);
+           real_size);
 
     sem_post(&recv_buffer->free_slots);
     recv_buffer->read_idx = (recv_buffer->read_idx + 1) % MAX_PACKETS;
 
-    return 0;
+    return real_size;
 }
 
 int router_retransmit(void *packet)

@@ -188,6 +188,12 @@ void *worker(void *arg)
                                 sizeof(struct vln_packet_header) +
                                     sheader->payload_length,
                                 0);
+                if (sent != sizeof(struct vln_packet_header) +
+                                sheader->payload_length) {
+                    printf("BOLOMDE VER GAIGZAVNA1!!!\n");
+                } else {
+                    printf("Sent0 %d\n", sent);
+                }
                 break; // TODO
             }
 
@@ -234,6 +240,13 @@ void *worker(void *arg)
                                     sheader->payload_length,
                                 0);
 
+                if (sent != sizeof(struct vln_packet_header) +
+                                sheader->payload_length) {
+                    printf("BOLOMDE VER GAIGZAVNA1!!!\n");
+                } else {
+                    printf("Sent1 %d\n", sent);
+                }
+
                 spayload->vaddr = pcon->vaddr;
                 // spayload->raddr = raddr2;
                 // spayload->rport = rport2;
@@ -243,11 +256,11 @@ void *worker(void *arg)
                                 sheader->payload_length,
                             0);
 
-                if (sent != sizeof(sizeof(struct vln_packet_header) +
-                                   sheader->payload_length)) {
-                    printf("BOLOMDE VER GAIGZAVNA\n");
+                if (sent != sizeof(struct vln_packet_header) +
+                                sheader->payload_length) {
+                    printf("BOLOMDE VER GAIGZAVNA2!!!\n");
                 } else {
-                    printf("Sent %d\n", sent);
+                    printf("Sent2 %d\n", sent);
                 }
             } else {
                 printf("ERROR: Unknown Connection Type\n");
