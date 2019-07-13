@@ -5,6 +5,7 @@
 
 /* Connection types */
 #define PYRAMID 1
+#define P2P 2
 
 typedef uint8_t vln_connection_type;
 

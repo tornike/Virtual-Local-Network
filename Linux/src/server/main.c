@@ -12,11 +12,12 @@
 #include "../lib/protocol.h"
 #include "../lib/uthash.h"
 #include "../lib/utlist.h"
+#include "../router.h"
 
 #define BACKLOG 10
 
 struct ipaddr {
-    char addr[15];
+    char addr[INET_ADDRSTRLEN];
     struct ipaddr *next;
     struct ipaddr *prev;
 };
@@ -37,7 +38,7 @@ int server_connections_count;
 pthread_mutex_t connectionsm;
 
 uint32_t serverip;
-int serverudpfd;
+uint32_t rserverip;
 
 uint32_t get_available_address()
 {
@@ -61,14 +62,16 @@ void add_available_address(uint32_t ip)
 void *worker(void *arg)
 {
     struct server_connection *scon = (struct server_connection *)arg;
+    socklen_t c_addr_size = sizeof(struct sockaddr_in);
 
     struct sockaddr_in c_addr;
-    socklen_t c_addr_size = sizeof(struct sockaddr_in);
     getpeername(scon->sockfd, (struct sockaddr *)&c_addr, &c_addr_size);
 
-    char adddr[15];
+    char adddr[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &c_addr.sin_addr, adddr, c_addr_size);
-    printf("Client Addr recvd %s\n", adddr);
+    printf("Client %s Connected\n", adddr);
+
+    // get virtual address, send hosts.
 
     while (1) {
         uint8_t recv_buff[1024];
@@ -163,13 +166,52 @@ void *worker(void *arg)
             struct vln_server_connect_payload *rpayload =
                 (struct vln_server_connect_payload *)PACKET_PAYLOAD(rpacket);
 
-            if (rpayload->vaddr == serverip)
-                break;
+            if (rpayload->vaddr == serverip) {
+                printf("connect to server ip\n");
+                router_add_connection(P2P, scon->vaddr, c_addr.sin_addr.s_addr,
+                                      0);
 
-            struct server_connection *pcon; // TODO error check.
+                uint8_t spacket[sizeof(struct vln_packet_header) +
+                                sizeof(struct vln_connect_payload)];
+                struct vln_packet_header *sheader =
+                    (struct vln_packet_header *)spacket;
+                struct vln_connect_payload *spayload =
+                    (struct vln_connect_payload *)PACKET_PAYLOAD(spacket);
+                sheader->type = CONNECT;
+                sheader->payload_length = sizeof(struct vln_connect_payload);
+
+                spayload->con_type = P2P;
+                spayload->vaddr = serverip;
+                spayload->raddr = rserverip;
+                spayload->rport = htons(33508);
+                int sent = send(scon->sockfd, spacket,
+                                sizeof(struct vln_packet_header) +
+                                    sheader->payload_length,
+                                0);
+                break; // TODO
+            }
+
+            struct server_connection *pcon;
+
+            // lock ???
             HASH_FIND_INT(server_connections, &rpayload->vaddr, pcon);
-            if (pcon == NULL)
+            // unlock ???
+            // pcon sheidzleba waishalos gamoyenebisas, race
+            // conditions gadawyveta unda.
+
+            if (pcon == NULL) { // TODO error check.
                 printf("NULLLLLLLLLLLLLLLLL\n");
+                break;
+            }
+
+            // uint32_t raddr1;
+            // uint16_t rport1;
+            // uint32_t raddr2;
+            // uint16_t rport2;
+            // router_get_raddr(scon->vaddr, &raddr1, &rport1);
+            // router_get_raddr(scon->vaddr, &raddr2, &rport2);
+            // printf("INCONNECT %ud, %ud, %ud, %ud\n", raddr1, rport1, raddr2,
+            //        rport2);
 
             uint8_t spacket[sizeof(struct vln_packet_header) +
                             sizeof(struct vln_connect_payload)];
@@ -181,21 +223,11 @@ void *worker(void *arg)
             sheader->payload_length = sizeof(struct vln_connect_payload);
 
             if (rpayload->con_type == PYRAMID) {
-                if (serverudpfd == 0) {
-                    serverudpfd = socket(AF_INET, SOCK_DGRAM, 0);
-
-                    struct sockaddr_in addr;
-                    addr.sin_family = AF_INET;
-                    addr.sin_port = htons(33508);
-                    addr.sin_addr.s_addr = htonl(INADDR_ANY);
-
-                    bind(serverudpfd, (struct sockaddr *)&addr,
-                         sizeof(struct sockaddr_in));
-                }
-                spayload->vaddr = scon->vaddr;
-                spayload->raddr = 0; // TODO
-                spayload->rport = htons(33508);
                 spayload->con_type = PYRAMID;
+
+                spayload->vaddr = scon->vaddr;
+                spayload->raddr = rserverip;
+                spayload->rport = htons(33508);
 
                 int sent = send(pcon->sockfd, spacket,
                                 sizeof(struct vln_packet_header) +
@@ -203,6 +235,8 @@ void *worker(void *arg)
                                 0);
 
                 spayload->vaddr = pcon->vaddr;
+                // spayload->raddr = raddr2;
+                // spayload->rport = rport2;
 
                 sent = send(scon->sockfd, spacket,
                             sizeof(struct vln_packet_header) +
@@ -210,7 +244,7 @@ void *worker(void *arg)
                             0);
 
                 if (sent != sizeof(sizeof(struct vln_packet_header) +
-                                   rpacket->payload_length)) {
+                                   sheader->payload_length)) {
                     printf("BOLOMDE VER GAIGZAVNA\n");
                 } else {
                     printf("Sent %d\n", sent);
@@ -239,7 +273,6 @@ void recv_connections(int port)
 
     int optval = 1;
     setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(int));
-
     s_addr.sin_family = AF_INET;
     s_addr.sin_port = htons(port);
     s_addr.sin_addr.s_addr = htonl(INADDR_ANY);
@@ -263,6 +296,9 @@ void recv_connections(int port)
 
 int init()
 {
+    char *rip = "34.65.70.129";
+    inet_pton(AF_INET, rip, &rserverip);
+
     available_addresses = NULL;
     server_connections = NULL;
     server_connections_count = 0;
@@ -292,7 +328,6 @@ int init()
     printf("SERVER ADDR: %s %d\n", server_addr->addr, serverip);
     DL_DELETE(available_addresses, available_addresses);
 
-    serverudpfd = 0;
     pthread_mutex_init(&ipm, NULL);
     pthread_mutex_init(&connectionsm, NULL);
 
@@ -302,6 +337,10 @@ int init()
 int main(int argc, char **argv)
 {
     init();
+
+    router_init(10);
+
+    printf("Router Initialized!\n");
 
     recv_connections(33507);
 

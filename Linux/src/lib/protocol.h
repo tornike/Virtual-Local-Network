@@ -13,6 +13,8 @@
 #define ADDR 8
 #define KEEPALIVE 9
 #define UADDR 10
+#define DATA 11
+#define RETRANSMIT 12
 
 /* Flags */
 #define VLN_VIRTUALADDR 128
@@ -54,7 +56,18 @@ struct vln_connect_payload { /* Connect packet payload for client */
     uint16_t rport;
 } __attribute__((packed));
 
+struct vln_data_packet_header {
+    vln_packet_type type;
+} __attribute__((packed));
+
+struct vln_data_init_payload {
+    uint32_t vaddr; /* vinc inits gzavnis */
+} __attribute__((packed));
+
 #define PACKET_PAYLOAD(packet)                                                 \
     ((uint8_t *)packet + sizeof(struct vln_packet_header))
+
+#define DATA_PACKET_PAYLOAD(packet)                                            \
+    ((uint8_t *)packet + sizeof(struct vln_data_packet_header))
 
 #endif

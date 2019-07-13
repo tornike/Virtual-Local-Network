@@ -2,23 +2,26 @@ CC = gcc
 CFLAGS_RELEASE = -Wall -c
 CFLAGS_DEBUG = -Wall -g -c
 LIBS = -lpthread
+HEADERS = ../lib/tcpwrapper.h ../lib/protocol.h ../router.h
 
 OBJECT_DIR = ../../build/server/
-SRC = $(wildcard *.c)
-OBJ = $(patsubst %.c, $(OBJECT_DIR)%.o, $(SRC))
 
-$(OBJECT_DIR)%.o: %.c
+$(OBJECT_DIR)server: $(OBJECT_DIR)main.o $(OBJECT_DIR)tcpwrapper.o $(OBJECT_DIR)router.o $(HEADERS)
+	$(CC) $^ -o $(OBJECT_DIR)$@ $(LIBS)
+
+$(OBJECT_DIR)main.o: main.c
 	$(CC) $(CFLAGS_DEBUG) $< -o $@
 
-all: $(OBJECT_DIR)server
+$(OBJECT_DIR)tcpwrapper.o: ../lib/tcpwrapper.c
+	$(CC) $(CFLAGS_DEBUG) $< -o $@
 
-$(OBJECT_DIR)server: $(OBJ)
-	$(CC) $^ -o $(OBJECT_DIR)$@ $(LIBS)
+$(OBJECT_DIR)router.o: ../router.c
+	$(CC) $(CFLAGS_DEBUG) $< -o $@
 
 clean:
 	rm $(OBJECT_DIR)*
 
 test:
-	echo $(OBJ)
+	echo $(wildcard ../lib/*.c) $(wildcard *.c)
 
 	

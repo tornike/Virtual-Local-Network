@@ -17,11 +17,12 @@
 #include "../connection.h"
 #include "../lib/protocol.h"
 #include "../lib/tcpwrapper.h"
+#include "../router.h"
 
 #define BUFFERSIZE 1024
 
 char *myip;
-char *server_addr = "35.228.37.164"; // Must be changed.
+char *server_addr = "34.65.70.129"; // Must be changed.
 int server_port_temp = 33507; // Must be changed.
 int sfd;
 int tunfd;
@@ -96,16 +97,9 @@ void *recv_thread(void *arg)
     struct sockaddr_in raddr;
     memset(&raddr, 0, sizeof(struct sockaddr_in));
 
-    socklen_t slen = sizeof(struct sockaddr_in);
-    while (100) {
+    while (1) {
         char buff[BUFFERSIZE];
-        int size = recvfrom(sfd, buff, BUFFERSIZE, 0, (struct sockaddr *)&raddr,
-                            &slen);
-
-        char ip[INET_ADDRSTRLEN];
-        inet_ntop(AF_INET, &raddr.sin_addr, (void *)&ip, INET_ADDRSTRLEN);
-
-        printf("Received from %s:%d %d bytes\n", ip, raddr.sin_port, size);
+        int size = router_receive(buff, BUFFERSIZE);
 
         char saddr[INET_ADDRSTRLEN];
         char daddr[INET_ADDRSTRLEN];
@@ -114,72 +108,22 @@ void *recv_thread(void *arg)
         inet_ntop(AF_INET, &((struct iphdr *)buff)->daddr, daddr,
                   INET_ADDRSTRLEN);
 
-        if (strcmp(daddr, myip) == 0) {
-            write(tunfd, buff, size);
-        }
+        printf("Received from V %s %s %d bytes\n", saddr, daddr, size);
+
+        write(tunfd, buff, size);
     }
 }
 
 void *send_thread(void *arg)
 {
-    struct sockaddr_in saddr;
-    memset(&saddr, 0, sizeof(struct sockaddr_in));
-    saddr.sin_family = AF_INET;
-    saddr.sin_port = htons(5000);
-    inet_pton(AF_INET, server_addr, &saddr.sin_addr.s_addr);
-
-    while (100) {
-        char buff[BUFFERSIZE];
-        int size = read(tunfd, buff, BUFFERSIZE);
-        sendto(sfd, buff, size, 0, (struct sockaddr *)&saddr,
-               sizeof(struct sockaddr_in));
-    }
-}
-
-int connect_network_udp()
-{
-    int sockfd;
-    struct sockaddr_in servaddr;
-
-    // Creating socket file descriptor
-    if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
-        perror("socket creation failed");
-        exit(EXIT_FAILURE);
-    }
-
-    memset(&servaddr, 0, sizeof(servaddr));
-
-    // Filling server information
-    servaddr.sin_family = AF_INET;
-    servaddr.sin_port = htons(0);
-    servaddr.sin_addr.s_addr = INADDR_ANY;
-    bind(sockfd, (struct sockaddr *)&servaddr, sizeof(struct sockaddr_in));
-    printf("Create UDP\n");
-    return sockfd;
-}
-
-void *send_keep_alive(void *arg)
-{
-    struct TEMP *temp = (struct TEMP *)arg;
-    struct vln_packet_header keep_alive;
-    keep_alive.payload_length = 0;
-    keep_alive.type = KEEPALIVE;
-    uint8_t buff[BUFFERSIZE];
-    struct sockaddr_in servaddr;
-    servaddr.sin_family = AF_INET;
-    servaddr.sin_port = htons(temp->port);
-    inet_pton(AF_INET, server_addr, &servaddr.sin_addr.s_addr);
     while (1) {
-
-        sendto(temp->sfd, (struct vln_packet_header *)&keep_alive,
-               sizeof(struct vln_packet_header), 0,
-               (const struct sockaddr *)&servaddr, sizeof(servaddr));
-        sleep(3);
-        printf("Wait...\n");
-        recvfrom(temp->sfd, &buff, BUFFERSIZE, 0, NULL, 0);
-        struct vln_packet_header *pak = (struct vln_packet_header *)&buff;
-        printf("recv: %d\n", pak->type);
+        char buff[BUFFERSIZE];
+        int size = read(tunfd, buff + sizeof(struct vln_packet_header),
+                        BUFFERSIZE - sizeof(struct vln_packet_header));
+        router_transmit(buff, size);
     }
+
+    return NULL;
 }
 
 int add_tunnel_interface(int port)
@@ -194,20 +138,6 @@ int add_tunnel_interface(int port)
     }
 
     configure_adapter(adapter_name);
-
-    struct sockaddr_in addr;
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    inet_pton(AF_INET, "0.0.0.0", &addr.sin_addr.s_addr);
-
-    sfd = socket(AF_INET, SOCK_DGRAM, 0);
-    bind(sfd, (struct sockaddr *)&addr, sizeof(struct sockaddr_in));
-
-    pthread_t rt;
-    pthread_t wt;
-
-    pthread_create(&rt, NULL, recv_thread, NULL);
-    pthread_create(&wt, NULL, send_thread, NULL);
     return EXIT_SUCCESS;
 }
 
@@ -222,6 +152,8 @@ int add_vaddr_tunnel_interface(struct vln_vaddr_payload *paylod)
     addr = (struct sockaddr_in *)&ifr.ifr_addr;
     addr->sin_addr.s_addr = paylod->ip_addr;
     addr->sin_family = AF_INET;
+
+    int sfd = socket(AF_INET, SOCK_DGRAM, 0);
 
     if (ioctl(sfd, SIOCSIFADDR, &ifr) < 0) {
         printf("Setting IP address failed: %s\n", strerror(errno));
@@ -300,11 +232,8 @@ void connect_network_tcp()
             if (recv_wrap((void *)&rpaylod, sizeof(struct vln_connect_payload)))
                 printf("error recv_wrap CONNECT_TO_SERVER \n");
 
-            char ip[15]; ////
-            inet_ntop(AF_INET, &rpaylod.vaddr, &ip, 15); ///
-            printf("IP: %s\n", ip);
-
-            // int sockfd = connect_network_udp();
+            router_add_connection(rpaylod.con_type, rpaylod.vaddr,
+                                  rpaylod.raddr, rpaylod.rport);
 
         } else if (type == INITR) {
             printf("Receive INITR\n");
@@ -313,10 +242,8 @@ void connect_network_tcp()
             if (recv_wrap((void *)&rpayload, sizeof(struct vln_initr_payload)))
                 printf("error recv_wrap INITR \n");
 
-            int tunnel_interface = add_vaddr_tunnel_interface(&rpayload);
-
-            if (tunnel_interface) {
-
+            if (add_vaddr_tunnel_interface(&rpayload)) {
+                router_set_vaddr(rpayload.ip_addr);
                 struct vln_packet_header sheader;
                 sheader.payload_length = 0;
                 sheader.type = HOSTS;
@@ -352,8 +279,8 @@ void connect_network_tcp()
                 if (recv_wrap((void *)&rpayload,
                               sizeof(struct vln_vaddr_payload)))
                     printf("error recv_wrap HOSTSR \n");
-                char ip[15]; ////
-                inet_ntop(AF_INET, &rpayload.ip_addr, &ip, 15); ///
+                char ip[INET_ADDRSTRLEN]; ////
+                inet_ntop(AF_INET, &rpayload.ip_addr, &ip, INET_ADDRSTRLEN); ///
                 printf("IP: %s\n", ip); ///
 
                 spayload->vaddr = rpayload.ip_addr;
@@ -375,9 +302,15 @@ void connect_network_tcp()
 int main(int argc, char **argv)
 {
     add_tunnel_interface(0);
+    router_init(10);
+    printf("Router Initialized!\n");
+
+    pthread_t rt, st;
+    pthread_create(&rt, NULL, recv_thread, NULL);
+    pthread_create(&st, NULL, send_thread, NULL);
+
     connect_network_tcp();
 
     pthread_exit(NULL);
-
     return 0;
 }
