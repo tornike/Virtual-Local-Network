@@ -3,12 +3,14 @@
 
 #include <stddef.h>
 
-void init_tcpwrapper(int sockfd, size_t buffer_size);
+struct tcpwrapper;
 
-int recv_wrap(void *buffer, size_t size);
+struct tcpwrapper *tcpwrapper_create(int sockfd, size_t buffer_size);
 
-int send_wrap(void *buffer, size_t size);
+void tcpwrapper_destroy(struct tcpwrapper *wrapper);
 
-void tcpwrapper_free();
+int recv_wrap(struct tcpwrapper *wrapper, void *buffer, size_t size);
+
+int send_wrap(struct tcpwrapper *wrapper, void *buffer, size_t size);
 
 #endif

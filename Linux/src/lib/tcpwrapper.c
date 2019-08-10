@@ -6,61 +6,64 @@
 
 #include "tcpwrapper.h"
 
-uint8_t *current_buffer;
-int sock;
-size_t start_point;
-size_t end_point;
-size_t buff_size;
+struct tcpwrapper {
+    uint8_t *buffer;
+    size_t buffer_size;
+    int sockfd;
+    size_t start_point;
+    size_t end_point;
+};
 
-void init_tcpwrapper(int sockfd, size_t buffer_size)
+struct tcpwrapper *tcpwrapper_create(int sockfd, size_t buffer_size)
 {
-    buff_size = buffer_size;
-    current_buffer = malloc(buffer_size);
-    sock = sockfd;
-    start_point = 0;
-    end_point = 0;
+    struct tcpwrapper *wrapper = malloc(sizeof(struct tcpwrapper));
+    wrapper->buffer_size = buffer_size;
+    wrapper->buffer = malloc(buffer_size);
+    wrapper->sockfd = sockfd;
+    wrapper->start_point = 0;
+    wrapper->end_point = 0;
+    return wrapper;
 }
 
-void tcpwrapper_free()
+void tcpwrapper_destroy(struct tcpwrapper *wrapper)
 {
-    free(current_buffer);
+    free(wrapper->buffer);
+    free(wrapper);
 }
 
-int recv_wrap(void *buffer, size_t size)
+int recv_wrap(struct tcpwrapper *wrapper, void *buffer, size_t size)
 {
+    size_t available_bytes = 0;
     while (size != 0) {
+        available_bytes = wrapper->end_point - wrapper->start_point;
 
-        size_t avilable_buff_size = end_point - start_point;
-
-        if (avilable_buff_size == 0) {
-            int recv_count = recv(sock, current_buffer, buff_size, 0);
-            if (recv_count == 0)
+        if (available_bytes == 0) {
+            size_t recv_tmp =
+                recv(wrapper->sockfd, wrapper->buffer, wrapper->buffer_size, 0);
+            if (recv_tmp == 0)
                 return 1;
-            start_point = 0;
-            end_point = recv_count;
-            avilable_buff_size = end_point - start_point;
+            wrapper->start_point = 0;
+            wrapper->end_point = recv_tmp;
+        } else {
+            size_t min = size > available_bytes ? available_bytes : size;
+            memcpy((uint8_t *)buffer, wrapper->buffer + wrapper->start_point,
+                   min);
+            size -= min;
+            buffer = (uint8_t *)buffer + min;
+            wrapper->start_point += min;
         }
-
-        int t = size > avilable_buff_size ? avilable_buff_size : size;
-        memcpy((uint8_t *)buffer, current_buffer + start_point, t);
-        size -= t;
-        buffer = (uint8_t *)buffer + t;
-        start_point += t;
     }
     return 0;
 }
 
-int send_wrap(void *buffer, size_t size)
+int send_wrap(struct tcpwrapper *wrapper, void *buffer, size_t size)
 {
-    size_t send_size = 0;
-    while (1) {
-        if (send_size == size)
-            return 0;
-        size_t send_amount =
-            send(sock, (buffer + send_size), (size - send_size), 0);
-        if (send_amount == -1)
+    while (size != 0) {
+        size_t sent_tmp = send(wrapper->sockfd, buffer, size, 0);
+        if (sent_tmp == -1)
             return 1;
-        send_size += send_amount;
+        size -= sent_tmp;
+        buffer = (uint8_t *)buffer + sent_tmp;
     }
-    return 1;
+    return 0;
 }

@@ -13,6 +13,7 @@
 #include "../lib/uthash.h"
 #include "../lib/utlist.h"
 #include "../router.h"
+#include "../lib/tcpwrapper.h"
 
 #define BACKLOG 10
 
@@ -73,19 +74,21 @@ void *worker(void *arg)
 
     // get virtual address, send hosts.
 
+    struct tcpwrapper *tcpwrapper = tcpwrapper_create(scon->sockfd,1024); 
+
+    struct vln_packet_header rpacket;
+
+
     while (1) {
-        uint8_t recv_buff[1024];
-        int recvd = recv(scon->sockfd, &recv_buff, 1024, 0);
-        if (recvd == 0) {
+       
+        if(recv_wrap(tcpwrapper, (void *)&rpacket, sizeof(struct vln_packet_header)) != 0){
             printf("Connection Lost\n");
-            return NULL; // TODO
+            break;
         }
 
-        struct vln_packet_header *rpacket =
-            (struct vln_packet_header *)&recv_buff;
-        switch (rpacket->type) {
+        switch (rpacket.type) {
         case INIT: {
-            assert(rpacket->payload_length == 0);
+            assert(rpacket.payload_length == 0);
             printf("INIT RECVED\n");
 
             if (scon->vaddr == 0) {
@@ -109,16 +112,16 @@ void *worker(void *arg)
             spayload->vaddr = scon->vaddr;
             spayload->vmaskaddr = 0;
 
-            int sent = send(scon->sockfd, (void *)spacket, sizeof(spacket), 0);
-            if (sent != sizeof(spacket)) {
+
+            if (send_wrap(tcpwrapper,(void *)spacket, sizeof(spacket)) != 0) {
                 printf("BOLOMDE VER GAIGZAVNA\n");
             } else {
-                printf("INITR Sent %d\n", sent);
+                printf("INITR Sent %d\n");
             }
             break;
         }
         case HOSTS: {
-            assert(rpacket->payload_length == 0);
+            assert(rpacket.payload_length == 0);
             printf("HOSTS RECVED\n");
 
             pthread_mutex_lock(&connectionsm);
@@ -150,8 +153,7 @@ void *worker(void *arg)
 
             pthread_mutex_unlock(&connectionsm);
 
-            int sent = send(scon->sockfd, (void *)spacket, sizeof(spacket), 0);
-            if (sent != sizeof(spacket)) {
+            if (send_wrap(tcpwrapper,(void *)spacket, sizeof(spacket)) != 0) {
                 printf("BOLOMDE VER GAIGZAVNA\n");
             } else {
                 printf("HOSTSR SENT\n");
@@ -159,12 +161,12 @@ void *worker(void *arg)
             break;
         }
         case CONNECT: {
-            assert(rpacket->payload_length ==
+            assert(rpacket.payload_length ==
                    sizeof(struct vln_server_connect_payload));
             printf("CONNECT RECVED\n");
 
             struct vln_server_connect_payload *rpayload =
-                (struct vln_server_connect_payload *)PACKET_PAYLOAD(rpacket);
+                (struct vln_server_connect_payload *)PACKET_PAYLOAD(&rpacket);
 
             if (rpayload->vaddr == serverip) {
                 printf("connect to server ip\n");
@@ -184,15 +186,13 @@ void *worker(void *arg)
                 spayload->vaddr = serverip;
                 spayload->raddr = rserverip;
                 spayload->rport = htons(33508);
-                int sent = send(scon->sockfd, spacket,
+                
+                if (send_wrap(tcpwrapper, (void *)spacket,
                                 sizeof(struct vln_packet_header) +
-                                    sheader->payload_length,
-                                0);
-                if (sent != sizeof(struct vln_packet_header) +
-                                sheader->payload_length) {
+                                    sheader->payload_length) != 0) {
                     printf("BOLOMDE VER GAIGZAVNA1!!!\n");
                 } else {
-                    printf("Sent0 %d\n", sent);
+                    printf("Sent0 \n");
                 }
                 break; // TODO
             }
@@ -235,32 +235,24 @@ void *worker(void *arg)
                 spayload->raddr = rserverip;
                 spayload->rport = htons(33508);
 
-                int sent = send(pcon->sockfd, spacket,
+                if (send_wrap(tcpwrapper, (void *)spacket,
                                 sizeof(struct vln_packet_header) +
-                                    sheader->payload_length,
-                                0);
-
-                if (sent != sizeof(struct vln_packet_header) +
-                                sheader->payload_length) {
+                                    sheader->payload_length) != 0) {
                     printf("BOLOMDE VER GAIGZAVNA1!!!\n");
                 } else {
-                    printf("Sent1 %d\n", sent);
+                    printf("Sent1 \n");
                 }
 
                 spayload->vaddr = pcon->vaddr;
                 // spayload->raddr = raddr2;
                 // spayload->rport = rport2;
-
-                sent = send(scon->sockfd, spacket,
+            
+                if (send_wrap(tcpwrapper, (void *)spacket,
                             sizeof(struct vln_packet_header) +
-                                sheader->payload_length,
-                            0);
-
-                if (sent != sizeof(struct vln_packet_header) +
-                                sheader->payload_length) {
+                                sheader->payload_length) != 0) {
                     printf("BOLOMDE VER GAIGZAVNA2!!!\n");
                 } else {
-                    printf("Sent2 %d\n", sent);
+                    printf("Sent2 \n");
                 }
             } else {
                 printf("ERROR: Unknown Connection Type\n");
@@ -272,6 +264,8 @@ void *worker(void *arg)
             return NULL;
         }
     }
+
+    tcpwrapper_destroy(tcpwrapper);
 
     return NULL;
 }
