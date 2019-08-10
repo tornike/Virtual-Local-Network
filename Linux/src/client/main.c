@@ -41,12 +41,16 @@ struct TEMP {
  */
 int create_adapter(char *name, int flags)
 {
-    int fd, err;
+    int fd, err, sfd;
     struct ifreq ifr;
 
     /* open the clone device */
     if ((fd = open("/dev/net/tun", O_RDWR)) < 0) {
-        return fd;
+        dprintf(STDERR_FILENO,
+                "Creating newtork interface failed: \n Opening clone device "
+                "failed: %s\n",
+                strerror(errno));
+        exit(EXIT_FAILURE);
     }
 
     memset(&ifr, 0, sizeof(struct ifreq));
@@ -59,37 +63,44 @@ int create_adapter(char *name, int flags)
 
     /* try to create the device */
     if ((err = ioctl(fd, TUNSETIFF, (void *)&ifr)) < 0) {
-        close(fd);
-        return err;
+        dprintf(STDERR_FILENO,
+                "Creating newtork interface failed: \n Creating device "
+                "failed: %s\n",
+                strerror(errno));
+        exit(EXIT_FAILURE);
     }
 
     /* get actual name of an interface */
     strcpy(name, ifr.ifr_name);
 
-    return fd;
-}
+    if ((sfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+        dprintf(STDERR_FILENO,
+                "Creating newtork interface failed: \n Creating socket "
+                "failed: %s\n",
+                strerror(errno));
+        exit(EXIT_FAILURE);
+    }
 
-int configure_adapter(char *name)
-{
-
-    struct ifreq ifr;
-    strcpy(ifr.ifr_name, name);
-
-    int sfd = socket(AF_INET, SOCK_DGRAM, 0);
-
+    //------------------------
     if (ioctl(sfd, SIOCGIFFLAGS, &ifr) < 0) {
         printf("Getting interface flags failed: %s\n", strerror(errno));
     }
-
     printf("Flags %d\n", ifr.ifr_flags);
+    //------------------------
+
     ifr.ifr_flags = IFF_UP | IFF_RUNNING | IFF_NOARP | IFF_POINTOPOINT;
     if (ioctl(sfd, SIOCSIFFLAGS, &ifr) < 0) {
-        printf("Setting interface flags failed: %s\n", strerror(errno));
+        dprintf(STDERR_FILENO,
+                "Creating newtork interface failed: \n Setting network "
+                "interface flags "
+                "failed: %s\n",
+                strerror(errno));
+        exit(EXIT_FAILURE);
     }
 
     close(sfd);
 
-    return 0;
+    return fd;
 }
 
 void *recv_thread(void *arg)
@@ -118,27 +129,12 @@ void *send_thread(void *arg)
 {
     while (1) {
         char buff[BUFFERSIZE];
-        int size = read(tunfd, buff + sizeof(struct vln_packet_header),
-                        BUFFERSIZE - sizeof(struct vln_packet_header));
+        int size = read(tunfd, buff + sizeof(struct vln_data_packet_header),
+                        BUFFERSIZE - sizeof(struct vln_data_packet_header));
         router_transmit(buff, size);
     }
 
     return NULL;
-}
-
-int add_tunnel_interface(int port)
-{
-    char adapter_name[IFNAMSIZ];
-    strcpy(adapter_name, "testint1");
-
-    tunfd = create_adapter(adapter_name, IFF_TUN | IFF_NO_PI);
-    if (tunfd < 0) {
-        printf("Creating interface failed: %s\n", strerror(errno));
-        return EXIT_FAILURE;
-    }
-
-    configure_adapter(adapter_name);
-    return EXIT_SUCCESS;
 }
 
 int add_vaddr_tunnel_interface(struct vln_vaddr_payload *paylod)
@@ -301,9 +297,13 @@ void connect_network_tcp()
 
 int main(int argc, char **argv)
 {
-    add_tunnel_interface(0);
-    router_init(10);
-    printf("Router Initialized!\n");
+    char adapter_name[IFNAMSIZ];
+    strcpy(adapter_name, "testint1");
+
+    tunfd = create_adapter(adapter_name, IFF_TUN | IFF_NO_PI);
+
+    router_init(10); // aq vegar
+    printf("Router Initialized!\n"); // aq vegar
 
     pthread_t rt, st;
     pthread_create(&rt, NULL, recv_thread, NULL);

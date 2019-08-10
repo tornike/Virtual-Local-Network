@@ -224,6 +224,7 @@ int router_add_connection(vln_connection_type ctype, uint32_t vaddr,
     ncon->timerfds = timerfd_create(CLOCK_REALTIME, TFD_CLOEXEC);
 
     uint32_t bigen_vaddr = htobe32(ncon->vaddr);
+    printf("CON ADDD %u\n", bigen_vaddr);
     int key = bigen_vaddr % 10;
     pthread_rwlock_wrlock(&connections_lock);
     connections[key] = ncon;
@@ -244,7 +245,7 @@ int router_add_connection(vln_connection_type ctype, uint32_t vaddr,
 
     char ip[INET_ADDRSTRLEN]; ////
     inet_ntop(AF_INET, &vaddr, &ip, INET_ADDRSTRLEN); ///
-    printf("Added connection to IP: %s %d %d\n", ip, ncon->raddr, ncon->rport);
+    printf("Added connection to IP: %s %u %d\n", ip, ncon->raddr, ncon->rport);
 
     if (ncon->rport != 0 && ncon->con_type == P2P)
         send_init(ncon);
@@ -269,7 +270,8 @@ int router_transmit(void *packet, size_t size)
     void *packetd = ((struct vln_data_packet_header *)packet) + 1;
     void *packeth = ((struct vln_data_packet_header *)packet);
 
-    uint32_t bigen_vaddr = htobe32(((struct iphdr *)packetd)->saddr);
+    uint32_t bigen_vaddr = htobe32(((struct iphdr *)packetd)->daddr);
+    printf("TRANSMIT %u\n", bigen_vaddr);
     int key = bigen_vaddr % 10;
     int ssize;
     struct sockaddr_in saddr;
