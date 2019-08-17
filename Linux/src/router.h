@@ -4,21 +4,23 @@
 #include "lib/protocol.h"
 #include <stdlib.h>
 
-void router_init(size_t subnet_size);
+struct router;
 
-void router_destroy();
+struct router *router_create(uint32_t vaddr, uint32_t net_addr,
+                             uint32_t broad_addr);
 
-int router_add_connection(vln_connection_type ctype, uint32_t vaddr,
-                          uint32_t raddr, uint16_t rport);
+void router_destroy(struct router *);
 
-int router_remove_connection(uint32_t vaddr);
+// int router_add_connection(vln_connection_type ctype, uint32_t vaddr,
+//                           uint32_t raddr, uint16_t rport);
 
-int router_transmit(void *packet, size_t size);
+// int router_remove_connection(uint32_t vaddr);
 
-int router_receive(void *buffer, size_t size); /* size must be big enough */
+int router_transmit(struct router *, void *packet, size_t size);
 
-void router_set_vaddr(uint32_t ip_addr);
+int router_receive(struct router *, void *buffer,
+                   size_t size); /* size must be big enough */
 
-void router_get_raddr(uint32_t vaddr, uint32_t *raddr, uint16_t *rport);
+int router_get_addr(struct router *, uint32_t *raddr, uint16_t *rport);
 
 #endif
