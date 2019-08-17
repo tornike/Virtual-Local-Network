@@ -137,7 +137,7 @@ void *send_thread(void *arg)
     return NULL;
 }
 
-int add_vaddr_tunnel_interface(struct vln_vaddr_payload *paylod)
+int add_vaddr_tunnel_interface(struct vln_initr_payload *paylod)
 {
 
     struct sockaddr_in *addr;
@@ -146,7 +146,7 @@ int add_vaddr_tunnel_interface(struct vln_vaddr_payload *paylod)
     strcpy(ifr.ifr_name, "testint1");
 
     addr = (struct sockaddr_in *)&ifr.ifr_addr;
-    addr->sin_addr.s_addr = paylod->ip_addr;
+    addr->sin_addr.s_addr = paylod->vaddr;
     addr->sin_family = AF_INET;
 
     int sfd = socket(AF_INET, SOCK_DGRAM, 0);
@@ -158,13 +158,8 @@ int add_vaddr_tunnel_interface(struct vln_vaddr_payload *paylod)
         printf("Set Inet\n");
     }
 
-    int mask;
-    // shesacvlelia
-    inet_pton(AF_INET, "255.255.255.0", &mask);
-
     addr = (struct sockaddr_in *)&ifr.ifr_netmask;
-    addr->sin_addr.s_addr = mask;
-    addr->sin_family = AF_INET;
+    addr->sin_addr.s_addr = paylod->maskaddr;
 
     if (ioctl(sfd, SIOCSIFNETMASK, &ifr) < 0) {
         printf("Setting mask address failed: %s\n", strerror(errno));
@@ -172,6 +167,32 @@ int add_vaddr_tunnel_interface(struct vln_vaddr_payload *paylod)
     } else {
         printf("Set Mask Address\n");
     }
+
+    addr = (struct sockaddr_in *)&ifr.ifr_broadaddr;
+    addr->sin_addr.s_addr = paylod->broadaddr;
+
+    if (ioctl(sfd, SIOCSIFBRDADDR, &ifr) < 0) {
+        printf("Setting brodcast address failed: %s\n", strerror(errno));
+        return -1;
+    } else {
+        printf("Set Brodcast Address\n");
+    }
+
+    // TODO
+    // sfd = socket(AF_INET6, SOCK_DGRAM, 0);
+
+    // addr = (struct sockaddr_in *)&ifr.ifr_addr;
+    // addr->sin_addr.s_addr = 0;
+    // addr->sin_family = AF_INET6;
+
+    // if (ioctl(sfd, SIOCSIFADDR, &ifr) < 0) {
+    //     printf("Setting IPV6 address failed: %s\n", strerror(errno));
+    //     return -1;
+    // } else {
+    //     printf("Set IPV6 Address\n");
+    // }
+
+    close(sfd);
     return 1;
 }
 
@@ -206,7 +227,6 @@ void connect_network_tcp()
 
     spacket.type = INIT;
     spacket.payload_length = 0;
-
     if (send_wrap(tcpwrapper, (void *)&spacket,
                   sizeof(struct vln_packet_header)) != 0) {
         printf("error send_wrap INIT\n");
@@ -236,67 +256,71 @@ void connect_network_tcp()
         }
         case INITR: {
             printf("Receive INITR\n");
-            struct vln_vaddr_payload rpayload;
+            struct vln_initr_payload rpayload;
             if (recv_wrap(tcpwrapper, (void *)&rpayload,
                           sizeof(struct vln_initr_payload)) != 0)
                 printf("error recv_wrap INITR \n");
-
-            if (add_vaddr_tunnel_interface(&rpayload)) {
-                router_set_vaddr(rpayload.ip_addr);
-                rpacket.payload_length = 0;
-                rpacket.type = HOSTS;
-
-                if (send_wrap(tcpwrapper, (void *)&rpacket,
-                              sizeof(struct vln_packet_header))) {
-                    printf("error send_wrap HOSTS\n");
-                    break;
-                } else {
-                    printf("send_wrap HOSTS\n");
-                }
+            printf("Brodcast Address: %d\n", rpayload.broadaddr);
+            printf("MASK Address: %d\n", rpayload.maskaddr);
+            printf("Virtual Address: %d\n", rpayload.vaddr);
+            if (add_vaddr_tunnel_interface(&rpayload) == -1) {
+                dprintf(STDERR_FILENO,
+                        "Adding broadcast address in interface failed: \n "
+                        "Adding virtual address in interface failed: \n "
+                        "Adding mask address in interface failed: \n",
+                        strerror(errno));
+                exit(EXIT_FAILURE);
             }
             break;
         }
-        case HOSTSR: {
+        case ROOTNODES: {
 
-            printf("Enter: HOSTSR\n");
-            int struct_count =
-                rpacket.payload_length / sizeof(struct vln_vaddr_payload);
+            printf("Enter: ROOTNODES\n");
+            struct vln_addr_payload rpayload;
+            if (recv_wrap(tcpwrapper, (void *)&rpayload,
+                          sizeof(struct vln_addr_payload)) != 0)
+                printf("error recv_wrap INITR \n");
+            printf("recive: ROOTNODES\n");
+            // TODO
+            // int struct_count =
+            //     rpacket.payload_length / sizeof(struct vln_vaddr_payload);
 
-            uint8_t spacket[sizeof(struct vln_server_connect_payload) +
-                            sizeof(struct vln_packet_header)];
+            // uint8_t spacket[sizeof(struct vln_server_connect_payload) +
+            //                 sizeof(struct vln_packet_header)];
 
-            struct vln_packet_header *sheader =
-                (struct vln_packet_header *)spacket;
-            sheader->payload_length = sizeof(struct vln_server_connect_payload);
-            sheader->type = CONNECT;
+            // struct vln_packet_header *sheader =
+            //     (struct vln_packet_header *)spacket;
+            // sheader->payload_length = sizeof(struct
+            // vln_server_connect_payload); sheader->type = CONNECT;
 
-            struct vln_server_connect_payload *spayload =
-                (struct vln_server_connect_payload
-                     *)(spacket + sizeof(struct vln_packet_header));
+            // struct vln_server_connect_payload *spayload =
+            //     (struct vln_server_connect_payload
+            //          *)(spacket + sizeof(struct vln_packet_header));
 
-            spayload->con_type = PYRAMID;
+            // spayload->con_type = PYRAMID;
 
-            for (size_t i = 0; i < struct_count; i++) {
-                struct vln_vaddr_payload rpayload;
-                if (recv_wrap(tcpwrapper, (void *)&rpayload,
-                              sizeof(struct vln_vaddr_payload)) != 0) {
-                    printf("error recv_wrap HOSTSR \n");
-                    break;
-                }
+            // for (size_t i = 0; i < struct_count; i++) {
+            //     struct vln_vaddr_payload rpayload;
+            //     if (recv_wrap(tcpwrapper, (void *)&rpayload,
+            //                   sizeof(struct vln_vaddr_payload)) != 0) {
+            //         printf("error recv_wrap HOSTSR \n");
+            //         break;
+            //     }
 
-                char ip[INET_ADDRSTRLEN]; ////
-                inet_ntop(AF_INET, &rpayload.ip_addr, &ip, INET_ADDRSTRLEN); ///
-                printf("IP: %s\n", ip); ///
+            //     char ip[INET_ADDRSTRLEN]; ////
+            //     inet_ntop(AF_INET, &rpayload.ip_addr, &ip, INET_ADDRSTRLEN);
+            //     /// printf("IP: %s\n", ip); ///
 
-                spayload->vaddr = rpayload.ip_addr;
+            //     spayload->vaddr = rpayload.ip_addr;
 
-                if (send_wrap(tcpwrapper, (void *)spacket, sizeof(spacket)) !=
-                    0) {
-                    printf("error send_wrap HOSTSR: %lu\n", i);
-                } else {
-                    printf("send_wrap HOSTSR: %lu\n", i);
-                }
-            }
+            //     if (send_wrap(tcpwrapper, (void *)spacket, sizeof(spacket))
+            //     !=
+            //         0) {
+            //         printf("error send_wrap HOSTSR: %lu\n", i);
+            //     } else {
+            //         printf("send_wrap HOSTSR: %lu\n", i);
+            //     }
+            // }
 
             break;
         }
@@ -315,12 +339,12 @@ int main(int argc, char **argv)
 
     tunfd = create_adapter(adapter_name, IFF_TUN | IFF_NO_PI);
 
-    router_init(10); // aq vegar
+    // router_init(10); // aq vegar
     printf("Router Initialized!\n"); // aq vegar
 
-    pthread_t rt, st;
-    pthread_create(&rt, NULL, recv_thread, NULL);
-    pthread_create(&st, NULL, send_thread, NULL);
+    // pthread_t rt, st;
+    // pthread_create(&rt, NULL, recv_thread, NULL);
+    // pthread_create(&st, NULL, send_thread, NULL);
 
     connect_network_tcp();
 

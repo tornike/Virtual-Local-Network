@@ -1,7 +1,7 @@
 CC = gcc
 CFLAGS_RELEASE = -Wall -c
 CFLAGS_DEBUG = -Wall -g -c
-LIBS = -lpthread
+LIBS = -lpthread -lm
 HEADERS = ../lib/tcpwrapper.h ../lib/protocol.h ../router.h
 
 OBJECT_DIR = ../../build/server/

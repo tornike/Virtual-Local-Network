@@ -15,6 +15,7 @@
 #define UADDR 10
 #define DATA 11
 #define RETRANSMIT 12
+#define ROOTNODES 13
 
 /* Flags */
 #define VLN_VIRTUALADDR 128
@@ -29,7 +30,8 @@ struct vln_packet_header {
 
 struct vln_initr_payload {
     uint32_t vaddr;
-    uint32_t vmaskaddr;
+    uint32_t maskaddr;
+    uint32_t broadaddr;
 } __attribute__((packed));
 
 struct vln_vaddr_payload {
@@ -40,7 +42,9 @@ struct vln_vaddr_payload {
     uint8_t flags;
 } __attribute__((packed));
 
-struct vln_uaddr_payload {
+// TODO
+struct vln_addr_payload {
+    uint32_t ip_addr;
     uint16_t port;
 } __attribute__((packed));
 
