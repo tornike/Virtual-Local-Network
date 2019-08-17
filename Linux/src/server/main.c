@@ -1,5 +1,6 @@
 #include <arpa/inet.h>
 #include <assert.h>
+#include <math.h>
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <pthread.h>
@@ -10,10 +11,10 @@
 #include <sys/types.h>
 
 #include "../lib/protocol.h"
+#include "../lib/tcpwrapper.h"
 #include "../lib/uthash.h"
 #include "../lib/utlist.h"
 #include "../router.h"
-#include "../lib/tcpwrapper.h"
 
 #define BACKLOG 10
 
@@ -32,23 +33,26 @@ struct server_connection {
     UT_hash_handle hh;
 };
 
-struct ipaddr *available_addresses;
-pthread_mutex_t ipm;
+uint32_t network_addr;
+uint8_t network_bits;
+
 struct server_connection *server_connections;
 int server_connections_count;
 pthread_mutex_t connectionsm;
 
 uint32_t serverip;
 uint32_t rserverip;
+uint32_t _broadcast_address;
 
 uint32_t get_available_address()
 {
-    uint32_t ip = 0;
-    pthread_mutex_lock(&ipm);
-    inet_pton(AF_INET, available_addresses->addr, &ip); // TODO
-    DL_DELETE(available_addresses, available_addresses);
-    pthread_mutex_unlock(&ipm);
-    return ip;
+    //
+    // // uint32_t ip = 0;
+    // // pthread_mutex_lock(&ipm);
+    // // inet_pton(AF_INET, available_addresses->addr, &ip); // TODO
+    // DL_DELETE(available_addresses, available_addresses);
+    // pthread_mutex_unlock(&ipm);
+    // return ip;
 }
 
 void add_available_address(uint32_t ip)
@@ -74,14 +78,14 @@ void *worker(void *arg)
 
     // get virtual address, send hosts.
 
-    struct tcpwrapper *tcpwrapper = tcpwrapper_create(scon->sockfd,1024); 
+    struct tcpwrapper *tcpwrapper = tcpwrapper_create(scon->sockfd, 1024);
 
     struct vln_packet_header rpacket;
 
-
     while (1) {
-       
-        if(recv_wrap(tcpwrapper, (void *)&rpacket, sizeof(struct vln_packet_header)) != 0){
+
+        if (recv_wrap(tcpwrapper, (void *)&rpacket,
+                      sizeof(struct vln_packet_header)) != 0) {
             printf("Connection Lost\n");
             break;
         }
@@ -92,10 +96,12 @@ void *worker(void *arg)
             printf("INIT RECVED\n");
 
             if (scon->vaddr == 0) {
+                pthread_mutex_lock(&connectionsm);
                 scon->vaddr = get_available_address(); // TODO: empty list or
                                                        // already assigned.
                 HASH_ADD_INT(server_connections, vaddr, scon);
                 server_connections_count++;
+                pthread_mutex_unlock(&connectionsm);
             } else {
                 printf("ERROR: Address already assigned\n");
                 // TODO: ERROR: Already assigned.
@@ -112,8 +118,7 @@ void *worker(void *arg)
             spayload->vaddr = scon->vaddr;
             spayload->vmaskaddr = 0;
 
-
-            if (send_wrap(tcpwrapper,(void *)spacket, sizeof(spacket)) != 0) {
+            if (send_wrap(tcpwrapper, (void *)spacket, sizeof(spacket)) != 0) {
                 printf("BOLOMDE VER GAIGZAVNA\n");
             } else {
                 printf("INITR Sent %d\n");
@@ -153,7 +158,7 @@ void *worker(void *arg)
 
             pthread_mutex_unlock(&connectionsm);
 
-            if (send_wrap(tcpwrapper,(void *)spacket, sizeof(spacket)) != 0) {
+            if (send_wrap(tcpwrapper, (void *)spacket, sizeof(spacket)) != 0) {
                 printf("BOLOMDE VER GAIGZAVNA\n");
             } else {
                 printf("HOSTSR SENT\n");
@@ -186,10 +191,10 @@ void *worker(void *arg)
                 spayload->vaddr = serverip;
                 spayload->raddr = rserverip;
                 spayload->rport = htons(33508);
-                
+
                 if (send_wrap(tcpwrapper, (void *)spacket,
-                                sizeof(struct vln_packet_header) +
-                                    sheader->payload_length) != 0) {
+                              sizeof(struct vln_packet_header) +
+                                  sheader->payload_length) != 0) {
                     printf("BOLOMDE VER GAIGZAVNA1!!!\n");
                 } else {
                     printf("Sent0 \n");
@@ -236,8 +241,8 @@ void *worker(void *arg)
                 spayload->rport = htons(33508);
 
                 if (send_wrap(tcpwrapper, (void *)spacket,
-                                sizeof(struct vln_packet_header) +
-                                    sheader->payload_length) != 0) {
+                              sizeof(struct vln_packet_header) +
+                                  sheader->payload_length) != 0) {
                     printf("BOLOMDE VER GAIGZAVNA1!!!\n");
                 } else {
                     printf("Sent1 \n");
@@ -246,10 +251,10 @@ void *worker(void *arg)
                 spayload->vaddr = pcon->vaddr;
                 // spayload->raddr = raddr2;
                 // spayload->rport = rport2;
-            
+
                 if (send_wrap(tcpwrapper, (void *)spacket,
-                            sizeof(struct vln_packet_header) +
-                                sheader->payload_length) != 0) {
+                              sizeof(struct vln_packet_header) +
+                                  sheader->payload_length) != 0) {
                     printf("BOLOMDE VER GAIGZAVNA2!!!\n");
                 } else {
                     printf("Sent2 \n");
@@ -306,48 +311,35 @@ int init()
     char *rip = "34.65.70.129";
     inet_pton(AF_INET, rip, &rserverip);
 
-    available_addresses = NULL;
     server_connections = NULL;
     server_connections_count = 0;
 
-    struct ipaddr *addr1 = malloc(sizeof(struct ipaddr));
-    struct ipaddr *addr2 = malloc(sizeof(struct ipaddr));
-    struct ipaddr *addr3 = malloc(sizeof(struct ipaddr));
-    memset(addr1, 0, sizeof(struct ipaddr));
-    memset(addr2, 0, sizeof(struct ipaddr));
-    memset(addr3, 0, sizeof(struct ipaddr));
+    printf("Address Count: %d\n", 32 % network_bits);
 
-    strcpy(addr1->addr, "10.1.1.1");
-    strcpy(addr2->addr, "10.1.1.2");
-    strcpy(addr3->addr, "10.1.1.3");
-
-    DL_APPEND(available_addresses, addr1);
-    DL_APPEND(available_addresses, addr2);
-    DL_APPEND(available_addresses, addr3);
-
-    int count = 0;
-    struct ipaddr *tmp;
-    DL_COUNT(available_addresses, tmp, count);
-    printf("Address Count: %d\n", count);
-
-    struct ipaddr *server_addr = available_addresses;
-    inet_pton(AF_INET, server_addr->addr, &serverip);
-    printf("SERVER ADDR: %s %d\n", server_addr->addr, serverip);
-    DL_DELETE(available_addresses, available_addresses);
-
-    pthread_mutex_init(&ipm, NULL);
+    char server_addr[INET_ADDRSTRLEN];
+    uint32_t network_addrb = htob32(network_addr);
+    inet_ntop(AF_INET, &network_addrb, server_addr, INET_ADDRSTRLEN);
+    printf("SERVER ADDR: %s %d\n", server_addr, serverip);
     pthread_mutex_init(&connectionsm, NULL);
+
+    router_init(32 % network_bits);
+    printf("Router Initialized!\n");
 
     return 0;
 }
 
 int main(int argc, char **argv)
 {
+    if (argc < 3) {
+        printf("Invalid Arguments!\n");
+        return EXIT_FAILURE;
+    }
+
+    inet_pton(AF_INET, argv[1], &network_addr);
+    network_addr = btoh32(network_addr);
+    network_bits = atoi(argv[2]);
+
     init();
-
-    router_init(10);
-
-    printf("Router Initialized!\n");
 
     recv_connections(33507);
 
