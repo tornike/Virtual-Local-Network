@@ -273,7 +273,7 @@ void connect_network_tcp()
             printf("Enter: ROOTNODES\n");
             struct vln_connection_payload rpayload;
             if (recv_wrap(tcpwrapper, (void *)&rpayload,
-                          sizeof(struct vln_addr_payload)) != 0)
+                          sizeof(struct vln_connection_payload)) != 0)
                 printf("error recv_wrap INITR \n");
             printf("recive: ROOTNODES\n");
 
@@ -281,7 +281,7 @@ void connect_network_tcp()
             printf("Root port: %u\n", ntohs(rpayload.port));
             printf("Root vaddr: %u\n", ntohs(rpayload.vaddr));
 
-            router_add_connection(router, 0, ntohs(rpayload.vaddr),
+            router_add_connection(router, 0, ntohl(rpayload.vaddr),
                                   ntohl(rpayload.raddr), ntohs(rpayload.port),
                                   0, 1);
 

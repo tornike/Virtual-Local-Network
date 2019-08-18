@@ -137,7 +137,7 @@ void *worker(void *arg)
                 (struct vln_connection_payload *)PACKET_PAYLOAD(spacket_root);
 
             sheader->type = ROOTNODES;
-            sheader->payload_length = sizeof(struct vln_addr_payload);
+            sheader->payload_length = sizeof(struct vln_connection_payload);
 
             uint32_t root_addr;
             uint16_t root_port;

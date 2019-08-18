@@ -70,7 +70,7 @@ static void send_init(struct router *router, struct connection *con)
         (struct vln_data_init_payload *)DATA_PACKET_PAYLOAD(spacket);
 
     sheader->type = INIT;
-    spayload->vaddr = router->vaddr;
+    spayload->vaddr = htonl(router->vaddr);
 
     struct sockaddr_in saddr;
     saddr.sin_family = AF_INET;
@@ -138,9 +138,9 @@ static void *recv_worker(void *arg)
             printf("Init Recvd\n");
             payload =
                 (struct vln_data_init_payload *)DATA_PACKET_PAYLOAD(header);
-            printf("Router Vaddr %ul\n", payload->vaddr);
-            printf("Router Rport %d SET FOR HOST %ul\n", raddr.sin_port,
-                   payload->vaddr);
+            printf("Router Vaddr %u \n", ntohl(payload->vaddr));
+            printf("Router Rport %d SET FOR HOST %u\n", ntohs(raddr.sin_port),
+                   ntohl(payload->vaddr));
 
             router_add_connection(router, 0, payload->vaddr,
                                   ntohl(raddr.sin_addr.s_addr),
@@ -196,7 +196,7 @@ static void *keep_alive_worker(void *arg)
                 router->sockfd, &packet, sizeof(struct vln_data_packet_header),
                 0, (struct sockaddr *)&saddr, sizeof(struct sockaddr_in));
 
-            printf("KEEPALIVE SENT %ul %d\n",
+            printf("KEEPALIVE SENT %u %d\n",
                    htonl(CONNECTIONGADDR(con->addr_port)),
                    htons(CONNECTIONGPORT(con->addr_port)));
 
@@ -285,7 +285,7 @@ int router_add_connection(struct router *router, vln_connection_type ctype,
                           uint32_t vaddr, uint32_t raddr, uint16_t rport,
                           int isActive, int sendInit)
 {
-    struct connection *new_con = malloc(sizeof(struct connection *));
+    struct connection *new_con = malloc(sizeof(struct connection));
     new_con->con_type = ctype;
     new_con->vaddr = vaddr;
     CONNECTIONSADDR(new_con->addr_port, raddr);
@@ -306,7 +306,7 @@ int router_add_connection(struct router *router, vln_connection_type ctype,
     struct itimerspec iti;
     memset(&iti, 0, sizeof(struct itimerspec));
     iti.it_interval.tv_sec = 0;
-    iti.it_value.tv_sec = 0;
+    iti.it_value.tv_sec = 1;
     timerfd_settime(new_con->timerfds, 0, &iti, NULL);
 
     char ip[INET_ADDRSTRLEN]; //
@@ -315,7 +315,7 @@ int router_add_connection(struct router *router, vln_connection_type ctype,
            CONNECTIONGADDR(new_con->addr_port),
            CONNECTIONGPORT(new_con->addr_port));
 
-    if (sendInit)
+    if (sendInit == 1)
         send_init(router, new_con);
 
     return 0;
