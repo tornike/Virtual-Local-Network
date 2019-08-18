@@ -505,8 +505,16 @@ do {                                                                            
 } while (0)
 #define HASH_FIND_INT(head,findint,out)                                          \
     HASH_FIND(hh,head,findint,sizeof(int),out)
+/* Custom Define */
+#define HASH_FIND_UINT64_T(head,finduint64t,out)                                          \
+    HASH_FIND(hh,head,finduint64t,sizeof(uint64_t),out)
+/* Custom Define */
 #define HASH_ADD_INT(head,intfield,add)                                          \
     HASH_ADD(hh,head,intfield,sizeof(int),add)
+/* Custom Define */
+#define HASH_ADD_UINT64_T(head,uint64tfield,add)                                 \
+    HASH_ADD(hh,head,uint64tfield,sizeof(uint64_t),add)
+/* Custom Define */
 #define HASH_REPLACE_INT(head,intfield,add,replaced)                             \
     HASH_REPLACE(hh,head,intfield,sizeof(int),add,replaced)
 #define HASH_FIND_PTR(head,findptr,out)                                          \

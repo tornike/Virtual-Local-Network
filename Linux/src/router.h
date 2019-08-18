@@ -11,8 +11,9 @@ struct router *router_create(uint32_t vaddr, uint32_t net_addr,
 
 void router_destroy(struct router *);
 
-// int router_add_connection(vln_connection_type ctype, uint32_t vaddr,
-//                           uint32_t raddr, uint16_t rport);
+int router_add_connection(struct router *, vln_connection_type ctype,
+                          uint32_t vaddr, uint32_t raddr, uint16_t rport,
+                          int isActive, int sendInit);
 
 // int router_remove_connection(uint32_t vaddr);
 

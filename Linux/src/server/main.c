@@ -126,7 +126,7 @@ void *worker(void *arg)
             if (send_wrap(tcpwrapper, (void *)spacket, sizeof(spacket)) != 0) {
                 printf("BOLOMDE VER GAIGZAVNA\n");
             } else {
-                printf("INITR Sent %d\n");
+                printf("INITR Sent\n");
             }
 
             uint8_t spacket_root[sizeof(struct vln_packet_header) +
@@ -143,7 +143,7 @@ void *worker(void *arg)
             uint16_t root_port;
             router_get_raddr(_router, &root_addr, &root_port);
 
-            spayload_root->vaddr = htonl(_network_address + 1);
+            spayload_root->vaddr = htonl(_network_address + 1); // TODO
             spayload_root->raddr = htonl(_rserverip);
             spayload_root->port = htons(root_port);
 
@@ -151,7 +151,7 @@ void *worker(void *arg)
                           sizeof(spacket_root)) != 0) {
                 printf("BOLOMDE VER GAIGZAVNA\n");
             } else {
-                printf("ROOTNODES Sent %d\n");
+                printf("ROOTNODES Sent\n");
             }
 
             break;

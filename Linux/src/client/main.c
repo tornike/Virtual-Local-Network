@@ -17,19 +17,12 @@
 #include "../connection.h"
 #include "../lib/protocol.h"
 #include "../lib/tcpwrapper.h"
+#include "../lib/uthash.h"
 #include "../router.h"
-
-#define BUF
 
 char *_server_addr = "34.65.70.129"; // Must be changed.
 int _server_port_temp = 33507; // Must be changed.
 int _tunfd;
-int sfd;
-
-struct TEMP {
-    uint16_t port;
-    int sfd;
-};
 
 /* Arguments taken by the function:
  *
@@ -264,7 +257,7 @@ void connect_network_tcp()
                 printf("error recv_wrap INITR \n");
             if (add_vaddr_tunnel_interface(&rpayload) == -1) {
                 dprintf(STDERR_FILENO,
-                        "Adding payload in interface failed: \n ",
+                        "Adding payload in interface failed: %s\n ",
                         strerror(errno));
                 exit(EXIT_FAILURE);
             }
@@ -287,46 +280,10 @@ void connect_network_tcp()
             printf("Root raddr: %u\n", ntohl(rpayload.raddr));
             printf("Root port: %u\n", ntohs(rpayload.port));
             printf("Root vaddr: %u\n", ntohs(rpayload.vaddr));
-            // TODO
-            // int struct_count =
-            //     rpacket.payload_length / sizeof(struct vln_vaddr_payload);
 
-            // uint8_t spacket[sizeof(struct vln_server_connect_payload) +
-            //                 sizeof(struct vln_packet_header)];
-
-            // struct vln_packet_header *sheader =
-            //     (struct vln_packet_header *)spacket;
-            // sheader->payload_length = sizeof(struct
-            // vln_server_connect_payload); sheader->type = CONNECT;
-
-            // struct vln_server_connect_payload *spayload =
-            //     (struct vln_server_connect_payload
-            //          *)(spacket + sizeof(struct vln_packet_header));
-
-            // spayload->con_type = PYRAMID;
-
-            // for (size_t i = 0; i < struct_count; i++) {
-            //     struct vln_vaddr_payload rpayload;
-            //     if (recv_wrap(tcpwrapper, (void *)&rpayload,
-            //                   sizeof(struct vln_vaddr_payload)) != 0) {
-            //         printf("error recv_wrap HOSTSR \n");
-            //         break;
-            //     }
-
-            //     char ip[INET_ADDRSTRLEN]; ////
-            //     inet_ntop(AF_INET, &rpayload.ip_addr, &ip, INET_ADDRSTRLEN);
-            //     /// printf("IP: %s\n", ip); ///
-
-            //     spayload->vaddr = rpayload.ip_addr;
-
-            //     if (send_wrap(tcpwrapper, (void *)spacket, sizeof(spacket))
-            //     !=
-            //         0) {
-            //         printf("error send_wrap HOSTSR: %lu\n", i);
-            //     } else {
-            //         printf("send_wrap HOSTSR: %lu\n", i);
-            //     }
-            // }
+            router_add_connection(router, 0, ntohs(rpayload.vaddr),
+                                  ntohl(rpayload.raddr), ntohs(rpayload.port),
+                                  0, 1);
 
             break;
         }
