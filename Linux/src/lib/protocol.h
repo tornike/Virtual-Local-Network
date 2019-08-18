@@ -44,7 +44,14 @@ struct vln_vaddr_payload {
 
 // TODO
 struct vln_addr_payload {
-    uint32_t ip_addr;
+    uint32_t raddr;
+    uint16_t port;
+} __attribute__((packed));
+
+// TODO
+struct vln_connection_payload {
+    uint32_t vaddr;
+    uint32_t raddr;
     uint16_t port;
 } __attribute__((packed));
 

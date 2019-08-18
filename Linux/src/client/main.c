@@ -19,13 +19,12 @@
 #include "../lib/tcpwrapper.h"
 #include "../router.h"
 
-#define BUFFERSIZE 1024
+#define BUF
 
-char *myip;
-char *server_addr = "34.65.70.129"; // Must be changed.
-int server_port_temp = 33507; // Must be changed.
+char *_server_addr = "34.65.70.129"; // Must be changed.
+int _server_port_temp = 33507; // Must be changed.
+int _tunfd;
 int sfd;
-int tunfd;
 
 struct TEMP {
     uint16_t port;
@@ -105,34 +104,36 @@ int create_adapter(char *name, int flags)
 
 void *recv_thread(void *arg)
 {
-    struct sockaddr_in raddr;
-    memset(&raddr, 0, sizeof(struct sockaddr_in));
+    // TODO
+    // struct sockaddr_in raddr;
+    // memset(&raddr, 0, sizeof(struct sockaddr_in));
 
-    while (1) {
-        char buff[BUFFERSIZE];
-        int size = router_receive(buff, BUFFERSIZE);
+    // while (1) {
+    //     char buff[BUFFERSIZE];
+    //     int size = router_receive(buff, BUFFERSIZE);
 
-        char saddr[INET_ADDRSTRLEN];
-        char daddr[INET_ADDRSTRLEN];
-        inet_ntop(AF_INET, &((struct iphdr *)buff)->saddr, saddr,
-                  INET_ADDRSTRLEN);
-        inet_ntop(AF_INET, &((struct iphdr *)buff)->daddr, daddr,
-                  INET_ADDRSTRLEN);
+    //     char saddr[INET_ADDRSTRLEN];
+    //     char daddr[INET_ADDRSTRLEN];
+    //     inet_ntop(AF_INET, &((struct iphdr *)buff)->saddr, saddr,
+    //               INET_ADDRSTRLEN);
+    //     inet_ntop(AF_INET, &((struct iphdr *)buff)->daddr, daddr,
+    //               INET_ADDRSTRLEN);
 
-        printf("Received from V %s %s %d bytes\n", saddr, daddr, size);
+    //     printf("Received from V %s %s %d bytes\n", saddr, daddr, size);
 
-        write(tunfd, buff, size);
-    }
+    //     write(tunfd, buff, size);
+    // }
 }
 
 void *send_thread(void *arg)
 {
-    while (1) {
-        char buff[BUFFERSIZE];
-        int size = read(tunfd, buff + sizeof(struct vln_data_packet_header),
-                        BUFFERSIZE - sizeof(struct vln_data_packet_header));
-        router_transmit(buff, size);
-    }
+    // TODO
+    // while (1) {
+    //     char buff[BUFFERSIZE];
+    //     int size = read(tunfd, buff + sizeof(struct vln_data_packet_header),
+    //                     BUFFERSIZE - sizeof(struct vln_data_packet_header));
+    //     router_transmit(buff, size);
+    // }
 
     return NULL;
 }
@@ -199,9 +200,10 @@ int add_vaddr_tunnel_interface(struct vln_initr_payload *paylod)
 void connect_network_tcp()
 {
     int sockfd;
-    int server_port = server_port_temp;
-    char *tcp_server_addr = server_addr;
+    int server_port = _server_port_temp;
+    char *tcp_server_addr = _server_addr;
     struct sockaddr_in server_addr;
+    struct router *router;
 
     memset(&server_addr, 0, sizeof(server_addr));
 
@@ -250,8 +252,8 @@ void connect_network_tcp()
                           sizeof(struct vln_connect_payload)))
                 printf("error recv_wrap CONNECT_TO_SERVER \n");
 
-            router_add_connection(rpaylod.con_type, rpaylod.vaddr,
-                                  rpaylod.raddr, rpaylod.rport);
+            // router_add_connection(rpaylod.con_type, rpaylod.vaddr,
+            //                       rpaylod.raddr, rpaylod.rport);
             break;
         }
         case INITR: {
@@ -260,27 +262,31 @@ void connect_network_tcp()
             if (recv_wrap(tcpwrapper, (void *)&rpayload,
                           sizeof(struct vln_initr_payload)) != 0)
                 printf("error recv_wrap INITR \n");
-            printf("Brodcast Address: %d\n", rpayload.broadaddr);
-            printf("MASK Address: %d\n", rpayload.maskaddr);
-            printf("Virtual Address: %d\n", rpayload.vaddr);
             if (add_vaddr_tunnel_interface(&rpayload) == -1) {
                 dprintf(STDERR_FILENO,
-                        "Adding broadcast address in interface failed: \n "
-                        "Adding virtual address in interface failed: \n "
-                        "Adding mask address in interface failed: \n",
+                        "Adding payload in interface failed: \n ",
                         strerror(errno));
                 exit(EXIT_FAILURE);
             }
+
+            router =
+                router_create(ntohl(rpayload.vaddr),
+                              ntohl(rpayload.vaddr) & ntohl(rpayload.broadaddr),
+                              ntohl(rpayload.broadaddr));
             break;
         }
         case ROOTNODES: {
 
             printf("Enter: ROOTNODES\n");
-            struct vln_addr_payload rpayload;
+            struct vln_connection_payload rpayload;
             if (recv_wrap(tcpwrapper, (void *)&rpayload,
                           sizeof(struct vln_addr_payload)) != 0)
                 printf("error recv_wrap INITR \n");
             printf("recive: ROOTNODES\n");
+
+            printf("Root raddr: %u\n", ntohl(rpayload.raddr));
+            printf("Root port: %u\n", ntohs(rpayload.port));
+            printf("Root vaddr: %u\n", ntohs(rpayload.vaddr));
             // TODO
             // int struct_count =
             //     rpacket.payload_length / sizeof(struct vln_vaddr_payload);
@@ -337,10 +343,7 @@ int main(int argc, char **argv)
     char adapter_name[IFNAMSIZ];
     strcpy(adapter_name, "testint1");
 
-    tunfd = create_adapter(adapter_name, IFF_TUN | IFF_NO_PI);
-
-    // router_init(10); // aq vegar
-    printf("Router Initialized!\n"); // aq vegar
+    _tunfd = create_adapter(adapter_name, IFF_TUN | IFF_NO_PI);
 
     // pthread_t rt, st;
     // pthread_create(&rt, NULL, recv_thread, NULL);

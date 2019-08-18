@@ -21,6 +21,6 @@ int router_transmit(struct router *, void *packet, size_t size);
 int router_receive(struct router *, void *buffer,
                    size_t size); /* size must be big enough */
 
-int router_get_addr(struct router *, uint32_t *raddr, uint16_t *rport);
+void router_get_raddr(struct router *, uint32_t *raddr, uint16_t *rport);
 
 #endif

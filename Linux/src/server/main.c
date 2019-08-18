@@ -38,18 +38,21 @@ uint32_t _broadcast_address;
 uint32_t _network_address;
 uint8_t _network_bits;
 
-struct server_connection *server_connections;
-int server_connections_count;
-pthread_mutex_t connectionsm;
+// TODO
+struct router *_router;
 
-uint32_t serverip;
-uint32_t rserverip;
+struct server_connection *_server_connections;
+int _server_connections_count;
+pthread_mutex_t _connectionsm;
+
+uint32_t _serverip;
+uint32_t _rserverip;
 
 uint32_t get_available_address()
 {
     struct server_connection *con;
-    for (int i = _network_address + 1; i < _broadcast_address; i++) {
-        HASH_FIND_INT(server_connections, &i, con);
+    for (int i = _network_address + 2; i < _broadcast_address; i++) {
+        HASH_FIND_INT(_server_connections, &i, con);
         if (con == NULL) {
             return i;
         }
@@ -90,19 +93,19 @@ void *worker(void *arg)
             printf("INIT RECVED\n");
 
             if (scon->vaddr == 0) {
-                pthread_mutex_lock(&connectionsm);
+                pthread_mutex_lock(&_connectionsm);
                 scon->vaddr = get_available_address(); // TODO: empty list or
                                                        // already assigned.
                 if (scon->vaddr == 0) {
-                    pthread_mutex_unlock(&connectionsm);
+                    pthread_mutex_unlock(&_connectionsm);
                     printf("ERROR: goto EndWhile\n");
                     goto EndWhile;
                     // TODO
                     // die die die die die worker
                 }
-                HASH_ADD_INT(server_connections, vaddr, scon);
-                server_connections_count++;
-                pthread_mutex_unlock(&connectionsm);
+                HASH_ADD_INT(_server_connections, vaddr, scon);
+                _server_connections_count++;
+                pthread_mutex_unlock(&_connectionsm);
             } else {
                 printf("ERROR: Address already assigned\n");
                 // TODO: ERROR: Already assigned.
@@ -116,9 +119,9 @@ void *worker(void *arg)
                 (struct vln_initr_payload *)PACKET_PAYLOAD(spacket);
             sheader->type = INITR;
             sheader->payload_length = sizeof(struct vln_initr_payload);
-            spayload->vaddr = htobe32(scon->vaddr);
-            spayload->maskaddr = htobe32(_network_mask_address);
-            spayload->broadaddr = htobe32(_broadcast_address);
+            spayload->vaddr = htonl(scon->vaddr);
+            spayload->maskaddr = htonl(_network_mask_address);
+            spayload->broadaddr = htonl(_broadcast_address);
 
             if (send_wrap(tcpwrapper, (void *)spacket, sizeof(spacket)) != 0) {
                 printf("BOLOMDE VER GAIGZAVNA\n");
@@ -127,17 +130,22 @@ void *worker(void *arg)
             }
 
             uint8_t spacket_root[sizeof(struct vln_packet_header) +
-                                 sizeof(struct vln_addr_payload)];
+                                 sizeof(struct vln_connection_payload)];
 
             sheader = (struct vln_packet_header *)spacket_root;
-            struct vln_addr_payload *spayload_root =
-                (struct vln_addr_payload *)PACKET_PAYLOAD(spacket_root);
+            struct vln_connection_payload *spayload_root =
+                (struct vln_connection_payload *)PACKET_PAYLOAD(spacket_root);
 
             sheader->type = ROOTNODES;
             sheader->payload_length = sizeof(struct vln_addr_payload);
-            // TODO
-            // spayload_root->ip_addr = htobe32();
-            // spayload_root->port = htobe32();
+
+            uint32_t root_addr;
+            uint16_t root_port;
+            router_get_raddr(_router, &root_addr, &root_port);
+
+            spayload_root->vaddr = htonl(_network_address + 1);
+            spayload_root->raddr = htonl(_rserverip);
+            spayload_root->port = htons(root_port);
 
             if (send_wrap(tcpwrapper, (void *)spacket_root,
                           sizeof(spacket_root)) != 0) {
@@ -152,10 +160,10 @@ void *worker(void *arg)
             assert(rpacket.payload_length == 0);
             printf("HOSTS RECVED\n");
 
-            pthread_mutex_lock(&connectionsm);
+            pthread_mutex_lock(&_connectionsm);
 
             int payload_size =
-                server_connections_count * sizeof(struct vln_vaddr_payload);
+                _server_connections_count * sizeof(struct vln_vaddr_payload);
 
             uint8_t spacket[sizeof(struct vln_packet_header) + payload_size];
             struct vln_packet_header *sheader =
@@ -166,7 +174,7 @@ void *worker(void *arg)
             sheader->payload_length = payload_size;
 
             struct server_connection *server_con_elem;
-            for (server_con_elem = server_connections; server_con_elem != NULL;
+            for (server_con_elem = _server_connections; server_con_elem != NULL;
                  server_con_elem = server_con_elem->hh.next) {
                 if (server_con_elem->vaddr == scon->vaddr) {
                     continue;
@@ -177,9 +185,9 @@ void *worker(void *arg)
             }
 
             vaddrs->flags = VLN_SERVER | VLN_VIRTUALADDR;
-            vaddrs->ip_addr = serverip;
+            vaddrs->ip_addr = _serverip;
 
-            pthread_mutex_unlock(&connectionsm);
+            pthread_mutex_unlock(&_connectionsm);
 
             if (send_wrap(tcpwrapper, (void *)spacket, sizeof(spacket)) != 0) {
                 printf("BOLOMDE VER GAIGZAVNA\n");
@@ -196,10 +204,11 @@ void *worker(void *arg)
             struct vln_server_connect_payload *rpayload =
                 (struct vln_server_connect_payload *)PACKET_PAYLOAD(&rpacket);
 
-            if (rpayload->vaddr == serverip) {
+            if (rpayload->vaddr == _serverip) {
                 printf("connect to server ip\n");
-                router_add_connection(P2P, scon->vaddr, c_addr.sin_addr.s_addr,
-                                      0);
+                // router_add_connection(P2P, scon->vaddr,
+                // c_addr.sin_addr.s_addr,
+                //                      0);
 
                 uint8_t spacket[sizeof(struct vln_packet_header) +
                                 sizeof(struct vln_connect_payload)];
@@ -211,8 +220,8 @@ void *worker(void *arg)
                 sheader->payload_length = sizeof(struct vln_connect_payload);
 
                 spayload->con_type = P2P;
-                spayload->vaddr = serverip;
-                spayload->raddr = rserverip;
+                spayload->vaddr = _serverip;
+                spayload->raddr = _rserverip; // TODO ENDIAN
                 spayload->rport = htons(33508);
 
                 if (send_wrap(tcpwrapper, (void *)spacket,
@@ -228,7 +237,7 @@ void *worker(void *arg)
             struct server_connection *pcon;
 
             // lock ???
-            HASH_FIND_INT(server_connections, &rpayload->vaddr, pcon);
+            HASH_FIND_INT(_server_connections, &rpayload->vaddr, pcon);
             // unlock ???
             // pcon sheidzleba waishalos gamoyenebisas, race
             // conditions gadawyveta unda.
@@ -260,7 +269,7 @@ void *worker(void *arg)
                 spayload->con_type = PYRAMID;
 
                 spayload->vaddr = scon->vaddr;
-                spayload->raddr = rserverip;
+                spayload->raddr = _rserverip; // TODO ENDIAN
                 spayload->rport = htons(33508);
 
                 if (send_wrap(tcpwrapper, (void *)spacket,
@@ -338,26 +347,25 @@ int init(char *network_addr, char *network_bits)
         _network_address + (uint32_t)pow(2, 32 - _network_bits) - 1;
     _network_mask_address = ((uint32_t)pow(2, _network_bits) - 1)
                             << (32 - _network_bits);
-    printf("MASK Address: %u\n", _network_mask_address);
-    printf("Network Bits: %u\n", _network_bits);
-    printf("Brodcast Address: %u\n", _network_address);
 
     char *rip = "34.65.70.129";
     // TODO
-    inet_pton(AF_INET, rip, &rserverip);
+    inet_pton(AF_INET, rip, &_rserverip);
+    _rserverip = ntohl(_rserverip);
 
-    server_connections = NULL;
-    server_connections_count = 0;
+    _server_connections = NULL;
+    _server_connections_count = 0;
 
     printf("Address Count: %d\n", 32 % _network_bits);
 
     char server_addr[INET_ADDRSTRLEN];
     // uint32_t network_addrb = htobe32(network_addr_int);
     inet_ntop(AF_INET, &_network_address, server_addr, INET_ADDRSTRLEN);
-    printf("SERVER ADDR: %s %d\n", server_addr, serverip);
-    pthread_mutex_init(&connectionsm, NULL);
-
-    router_init(32 % _network_bits);
+    printf("SERVER ADDR: %s %d\n", server_addr, htonl(_network_address + 1));
+    pthread_mutex_init(&_connectionsm, NULL);
+    // get available adres
+    _router = router_create(_network_address + 1, _network_address,
+                            _broadcast_address);
     printf("Router Initialized!\n");
 
     return 0;

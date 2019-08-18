@@ -218,10 +218,8 @@ struct router *router_create(uint32_t vaddr, uint32_t net_addr,
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
     if ((bind(router->sockfd, (struct sockaddr *)&addr,
-              sizeof(struct sockaddr_in)) < 1)) {
-        dprintf(STDERR_FILENO,
-                "Router: Failed to Bind epoll file descriptor %s\n",
-                strerror(errno));
+              sizeof(struct sockaddr_in)) < 0)) {
+        dprintf(STDERR_FILENO, "Router: Failed to Bind %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
 
