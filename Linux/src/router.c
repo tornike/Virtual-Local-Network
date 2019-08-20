@@ -32,6 +32,14 @@
     *(uint16_t *)((uint32_t *)&addr_port + 1) = port
 #define CONNECTIONGPORT(addr_port) *(uint16_t *)((uint32_t *)&addr_port + 1)
 
+// TODO!!!!!!!
+#define UPDATETABLE 700
+
+struct vln_task_info_update_arg {
+    uint32_t vaddr;
+    uint8_t payload;
+};
+
 struct buffer_slot {
     uint8_t buffer[SLOT_SIZE];
     size_t used_size;
@@ -56,10 +64,55 @@ struct router {
     struct buffer_cond *recv_buffer;
     int epoll_fd;
     struct epoll_event event, events[MAX_EVENTS];
-    struct taskexecutor *taskexecutor;
+    struct taskexecutor *send_manager;
     struct connection *peers;
     pthread_mutex_t peers_lock;
 };
+
+void *prepear_update_packet_2(struct connection *new_con)
+{
+    uint8_t *spacket = malloc(sizeof(struct vln_packet_header) +
+                              sizeof(struct vln_update_payload));
+    struct vln_packet_header *sheader = (struct vln_packet_header *)spacket;
+    sheader->type = UPDATE;
+    sheader->payload_length = htonl(sizeof(struct vln_update_payload));
+    struct vln_update_payload *update = PACKET_PAYLOAD(spacket);
+    update->raddr = CONNECTIONGADDR(new_con->addr_port);
+    update->rport = CONNECTIONGPORT(new_con->addr_port);
+    update->vaddr = 0;
+    return spacket;
+}
+
+void *prepear_update_packet(struct router *router, uint32_t dvaddr)
+{
+    pthread_mutex_lock(&router->peers_lock);
+    uint32_t count = HASH_COUNT(router->peers);
+    uint8_t *spacket =
+        malloc(sizeof(struct vln_packet_header) + 2 * sizeof(uint32_t) +
+               count * sizeof(struct vln_update_payload));
+    struct vln_packet_header *sheader = (struct vln_packet_header *)spacket;
+    sheader->type = UPDATE;
+    *(uint32_t *)PACKET_PAYLOAD(spacket) = htonl(router->vaddr);
+    *((uint32_t *)PACKET_PAYLOAD(spacket) + 1) = htonl(dvaddr);
+    struct vln_update_payload *update =
+        PACKET_PAYLOAD(spacket) + sizeof(uint32_t);
+
+    struct connection *s;
+    uint32_t real_count = 0;
+    for (s = router->peers; s != NULL; s = (struct connection *)(s->hh.next)) {
+        if (s->active == 1) {
+            update->raddr = CONNECTIONGADDR(s->addr_port);
+            update->rport = CONNECTIONGPORT(s->addr_port);
+            update->vaddr = s->vaddr;
+            update = update + 1;
+            real_count++;
+        }
+    }
+    sheader->payload_length = htonl(
+        2 * sizeof(uint32_t) + real_count * sizeof(struct vln_update_payload));
+    pthread_mutex_unlock(&router->peers_lock);
+    return spacket;
+}
 
 static void send_init(struct router *router, struct connection *con)
 {
@@ -143,7 +196,7 @@ static void *recv_worker(void *arg)
             printf("Router Rport %d SET FOR HOST %u\n", ntohs(raddr.sin_port),
                    ntohl(payload->vaddr));
 
-            router_add_connection(router, 0, payload->vaddr,
+            router_add_connection(router, 0, ntohl(payload->vaddr),
                                   ntohl(raddr.sin_addr.s_addr),
                                   ntohs(raddr.sin_port), 1, 0);
 
@@ -226,7 +279,7 @@ struct router *router_create(uint32_t vaddr, uint32_t net_addr,
         exit(EXIT_FAILURE);
     };
 
-    router->taskexecutor = taskexecutor;
+    router->send_manager = taskexecutor;
 
     init_buffer_cond(&router->recv_buffer); // TODO
 
@@ -302,6 +355,12 @@ int router_add_connection(struct router *router, vln_connection_type ctype,
     router->event.data.ptr = new_con;
     epoll_ctl(router->epoll_fd, EPOLL_CTL_ADD, new_con->timerfds,
               &router->event);
+    if (isActive == 1) {
+        struct task_info *task_info = malloc(sizeof(struct task_info));
+        task_info->args = prepear_update_packet(router, new_con->vaddr);
+        task_info->operation = UPDATE;
+        taskexecutor_add_task(router->send_manager, task_info);
+    }
 
     pthread_mutex_lock(&router->peers_lock);
     HASH_ADD_UINT64_T(router->peers, addr_port, new_con);

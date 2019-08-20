@@ -16,6 +16,7 @@
 #define DATA 11
 #define RETRANSMIT 12
 #define ROOTNODES 13
+#define UPDATE 14
 
 /* Flags */
 #define VLN_VIRTUALADDR 128
@@ -26,6 +27,13 @@ typedef uint8_t vln_packet_type;
 struct vln_packet_header {
     vln_packet_type type;
     uint32_t payload_length; // TODO endian
+} __attribute__((packed));
+
+/// vadr real adry real port
+struct vln_update_payload {
+    uint32_t vaddr;
+    uint32_t raddr;
+    uint16_t rport;
 } __attribute__((packed));
 
 struct vln_initr_payload {
@@ -52,7 +60,7 @@ struct vln_addr_payload {
 struct vln_connection_payload {
     uint32_t vaddr;
     uint32_t raddr;
-    uint16_t port;
+    uint16_t rport;
 } __attribute__((packed));
 
 struct vln_server_connect_payload { /* Connect packet payload for server */

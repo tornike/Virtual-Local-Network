@@ -21,6 +21,14 @@
 #include "../lib/uthash.h"
 #include "../router.h"
 
+// TODO!!!!!!!
+#define UPDATETABLE 700
+
+struct vln_task_info_update_arg {
+    uint32_t vaddr;
+    uint8_t payload;
+};
+
 char *_server_addr = "34.65.70.129"; // Must be changed.
 int _server_port_temp = 33507; // Must be changed.
 int _tunfd;
@@ -201,7 +209,20 @@ void manager_sender_handler(void *args, struct task_info *task_info)
         printf("Send INIT\n");
         spacket = (struct vln_packet_header *)task_info->args;
         if (send_wrap(tcpwrapper, (void *)spacket,
-                      sizeof(struct vln_packet_header)) != 0) {
+                      sizeof(struct vln_packet_header) +
+                          ntohl(spacket->payload_length)) != 0) {
+            printf("error send_wrap INIT\n");
+        } else {
+            printf("send_wrap INIT\n");
+        }
+        free(spacket);
+        break;
+    }
+    case UPDATE: {
+        spacket = (struct vln_packet_header *)task_info->args;
+        if (send_wrap(tcpwrapper, (void *)task_info->args,
+                      sizeof(struct vln_packet_header) +
+                          ntohl(spacket->payload_length)) != 0) {
             printf("error send_wrap INIT\n");
         } else {
             printf("send_wrap INIT\n");
@@ -316,13 +337,39 @@ void manager_worker()
             printf("recive: ROOTNODES\n");
 
             printf("Root raddr: %u\n", ntohl(rpayload.raddr));
-            printf("Root port: %u\n", ntohs(rpayload.port));
+            printf("Root port: %u\n", ntohs(rpayload.rport));
             printf("Root vaddr: %u\n", ntohs(rpayload.vaddr));
 
             router_add_connection(router, 0, ntohl(rpayload.vaddr),
-                                  ntohl(rpayload.raddr), ntohs(rpayload.port),
+                                  ntohl(rpayload.raddr), ntohs(rpayload.rport),
                                   0, 1);
 
+            break;
+        }
+        case UPDATE: {
+            printf("Update Received %d\n", ntohl(rpacket.payload_length));
+            uint32_t svaddr;
+            uint32_t dvaddr;
+            if (recv_wrap(tcpwrapper, (void *)&svaddr, sizeof(uint32_t)) != 0) {
+                // TODO
+            }
+            if (recv_wrap(tcpwrapper, (void *)&dvaddr, sizeof(uint32_t)) != 0) {
+                // TODO
+            }
+            svaddr = ntohl(svaddr);
+            dvaddr = htonl(dvaddr);
+
+            uint32_t payload_length = ntohl(rpacket.payload_length);
+            int update_count = (payload_length - 2 * sizeof(uint32_t)) /
+                               sizeof(struct vln_update_payload);
+            struct vln_update_payload rpayload[update_count];
+            if (recv_wrap(tcpwrapper, (void *)&rpayload,
+                          payload_length - 2 * sizeof(uint32_t)) != 0) {
+                // TODO
+            }
+            for (int i = 0; i < update_count; i++) {
+                printf("Individual Update \n");
+            }
             break;
         }
         default:

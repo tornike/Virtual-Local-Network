@@ -27,7 +27,7 @@ struct ipaddr {
 
 struct server_connection {
     uint32_t vaddr;
-    int sockfd;
+    struct tcpwrapper *tcpwrapper;
     /*
         Maybe timers...
     */
@@ -70,7 +70,7 @@ void manager_sender_handler(void *args, struct task_info *task_info)
     case INIT: {
         printf("Send INIT\n");
         spacket = (struct vln_packet_header *)task_info->args;
-        if (send_wrap(tcpwrapper, (void *)task_info->args,
+        if (send_wrap(tcpwrapper, (void *)spacket,
                       sizeof(struct vln_packet_header) +
                           ntohl(spacket->payload_length)) != 0) {
             printf("BOLOMDE VER GAIGZAVNA\n");
@@ -83,7 +83,7 @@ void manager_sender_handler(void *args, struct task_info *task_info)
     case ROOTNODES: {
         printf("Send Root INIT\n");
         spacket = (struct vln_packet_header *)task_info->args;
-        if (send_wrap(tcpwrapper, (void *)task_info->args,
+        if (send_wrap(tcpwrapper, (void *)spacket,
                       sizeof(struct vln_packet_header) +
                           ntohl(spacket->payload_length)) != 0) {
             printf("BOLOMDE VER GAIGZAVNA\n");
@@ -93,6 +93,60 @@ void manager_sender_handler(void *args, struct task_info *task_info)
         free(spacket);
         break;
     }
+    case UPDATE: {
+        printf("Send UPDATE\n");
+        spacket = (struct vln_packet_header *)task_info->args;
+
+        struct vln_update_payload *update =
+            (struct vln_update_payload *)(PACKET_PAYLOAD(spacket) +
+                                          2 * sizeof(uint32_t));
+        uint32_t svaddr = ntohl(*(uint32_t *)(PACKET_PAYLOAD(spacket)));
+        uint32_t dvaddr =
+            ntohl(*(uint32_t *)(PACKET_PAYLOAD(spacket) + sizeof(uint32_t)));
+
+        struct server_connection *pcon;
+
+        if (dvaddr == 0) {
+            printf("Send UPDATE  0\n");
+            pthread_mutex_lock(&_connectionsm);
+            for (pcon = _server_connections; pcon != NULL;
+                 pcon = (struct server_connection *)(pcon->hh.next)) {
+                if (!(pcon->vaddr == svaddr ||
+                      pcon->vaddr == ntohl(update->vaddr))) {
+                    if (send_wrap(pcon->tcpwrapper, (void *)spacket,
+                                  sizeof(struct vln_packet_header) +
+                                      ntohl(spacket->payload_length)) != 0) {
+                        printf("BOLOMDE VER GAIGZAVNA\n");
+                    } else {
+                        printf("INITR Sent\n");
+                    }
+                }
+            }
+            pthread_mutex_unlock(&_connectionsm);
+
+        } else {
+            printf("Send UPDATE  1\n");
+            pthread_mutex_lock(&_connectionsm);
+            HASH_FIND_INT(_server_connections, &dvaddr, pcon);
+
+            // TODO if pcon is null
+            if (pcon != NULL) {
+
+                if (send_wrap(pcon->tcpwrapper, (void *)task_info->args,
+                              sizeof(struct vln_packet_header) +
+                                  ntohl(spacket->payload_length)) != 0) {
+                    printf("BOLOMDE VER GAIGZAVNA\n");
+                } else {
+                    printf("INITR Sent\n");
+                }
+            }
+            pthread_mutex_unlock(&_connectionsm);
+        }
+        free(spacket);
+
+        break;
+    }
+
     default:
         printf("ERROR: Unknown Packet Type\n");
         break;
@@ -110,19 +164,17 @@ void *manager_worker(void *arg)
     struct server_connection *scon = (struct server_connection *)arg;
     socklen_t c_addr_size = sizeof(struct sockaddr_in);
 
-    struct sockaddr_in c_addr;
-    getpeername(scon->sockfd, (struct sockaddr *)&c_addr, &c_addr_size);
+    // struct sockaddr_in c_addr;
+    // getpeername(scon->sockfd, (struct sockaddr *)&c_addr, &c_addr_size);
 
-    char adddr[INET_ADDRSTRLEN];
-    inet_ntop(AF_INET, &c_addr.sin_addr, adddr, c_addr_size);
-    printf("Client %s Connected\n", adddr);
+    // char adddr[INET_ADDRSTRLEN];
+    // inet_ntop(AF_INET, &c_addr.sin_addr, adddr, c_addr_size);
+    // printf("Client %s Connected\n", adddr);
 
     // get virtual address, send hosts.
 
-    struct tcpwrapper *tcpwrapper = tcpwrapper_create(scon->sockfd, 1024);
-
     struct taskexecutor *taskexecutor =
-        taskexecutor_create((Handler)&manager_sender_handler, tcpwrapper);
+        taskexecutor_create((Handler)&manager_sender_handler, scon->tcpwrapper);
 
     pthread_t sm;
     pthread_create(&sm, NULL, manager_sender_worker, taskexecutor);
@@ -142,7 +194,7 @@ void *manager_worker(void *arg)
 
     while (1) {
 
-        if (recv_wrap(tcpwrapper, (void *)&rpacket,
+        if (recv_wrap(scon->tcpwrapper, (void *)&rpacket,
                       sizeof(struct vln_packet_header)) != 0) {
             printf("Connection Lost\n");
             break;
@@ -214,7 +266,7 @@ void *manager_worker(void *arg)
 
             spayload_root->vaddr = htonl(_network_address + 1); // TODO
             spayload_root->raddr = htonl(_rserverip);
-            spayload_root->port = htons(root_port);
+            spayload_root->rport = htons(root_port);
 
             task_info = malloc(sizeof(struct task_info));
             task_info->operation = ROOTNODES;
@@ -230,13 +282,31 @@ void *manager_worker(void *arg)
 
             break;
         }
+        case UPDATE: {
+            uint8_t rpayload[ntohl(rpacket.payload_length)];
+            if (recv_wrap(scon->tcpwrapper, (void *)rpayload,
+                          ntohl(rpacket.payload_length)))
+                printf("UPDATE error recv_wrap CONNECT_TO_SERVER \n");
+            uint8_t *spacket = malloc(sizeof(struct vln_packet_header) +
+                                      ntohl(rpacket.payload_length));
+            memcpy(spacket, &rpacket, sizeof(struct vln_packet_header));
+            memcpy(PACKET_PAYLOAD(spacket), rpayload,
+                   ntohl(rpacket.payload_length));
+            task_info = malloc(sizeof(struct task_info));
+            task_info->args = spacket;
+            task_info->operation = UPDATE;
+
+            taskexecutor_add_task(taskexecutor, task_info);
+
+            break;
+        }
         default:
             printf("ERROR: Unknown Packet Type\n");
             return NULL;
         }
     }
 EndWhile:;
-    tcpwrapper_destroy(tcpwrapper);
+    tcpwrapper_destroy(scon->tcpwrapper);
 
     return NULL;
 }
@@ -265,7 +335,8 @@ void recv_connections(int port)
 
         struct server_connection *scon =
             malloc(sizeof(struct server_connection));
-        scon->sockfd = cfd;
+        // TODO ERRORS
+        scon->tcpwrapper = tcpwrapper_create(cfd, 1024);
 
         pthread_t t;
         pthread_create(&t, NULL, manager_worker, scon);
