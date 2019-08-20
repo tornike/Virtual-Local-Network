@@ -19,6 +19,7 @@
 #include <stdio.h>
 
 #include "lib/protocol.h"
+#include "lib/taskexecutor.h"
 #include "lib/uthash.h"
 
 #define MAX_PACKETS 15
@@ -55,7 +56,7 @@ struct router {
     struct buffer_cond *recv_buffer;
     int epoll_fd;
     struct epoll_event event, events[MAX_EVENTS];
-
+    struct taskexecutor *taskexecutor;
     struct connection *peers;
     pthread_mutex_t peers_lock;
 };
@@ -216,13 +217,16 @@ static void init_buffer_cond(struct buffer_cond **bc)
 }
 
 struct router *router_create(uint32_t vaddr, uint32_t net_addr,
-                             uint32_t broad_addr)
+                             uint32_t broad_addr,
+                             struct taskexecutor *taskexecutor)
 {
     struct router *router;
     if ((router = malloc(sizeof(struct router))) == NULL) {
         dprintf(STDERR_FILENO, "Router: Malloc Failed %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     };
+
+    router->taskexecutor = taskexecutor;
 
     init_buffer_cond(&router->recv_buffer); // TODO
 

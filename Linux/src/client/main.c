@@ -16,6 +16,7 @@
 
 #include "../connection.h"
 #include "../lib/protocol.h"
+#include "../lib/taskexecutor.h"
 #include "../lib/tcpwrapper.h"
 #include "../lib/uthash.h"
 #include "../router.h"
@@ -190,7 +191,36 @@ int add_vaddr_tunnel_interface(struct vln_initr_payload *paylod)
     return 1;
 }
 
-void connect_network_tcp()
+void manager_sender_handler(void *args, struct task_info *task_info)
+{
+    struct tcpwrapper *tcpwrapper = (struct tcpwrapper *)args;
+
+    struct vln_packet_header *spacket;
+    switch (task_info->operation) {
+    case INIT: {
+        printf("Send INIT\n");
+        spacket = (struct vln_packet_header *)task_info->args;
+        if (send_wrap(tcpwrapper, (void *)spacket,
+                      sizeof(struct vln_packet_header)) != 0) {
+            printf("error send_wrap INIT\n");
+        } else {
+            printf("send_wrap INIT\n");
+        }
+        free(spacket);
+        break;
+    }
+    default:
+        printf("ERROR: Unknown Packet Type\n");
+        break;
+    }
+}
+
+void *manager_sender_worker(void *arg)
+{
+    taskexecutor_start((struct taskexecutor *)arg);
+}
+
+void manager_worker()
 {
     int sockfd;
     int server_port = _server_port_temp;
@@ -215,19 +245,27 @@ void connect_network_tcp()
         exit(1);
     }
 
-    struct tcpwrapper *tcpwrapper = tcpwrapper_create(sockfd, 1024);
+    struct tcpwrapper *tcpwrapper =
+        tcpwrapper_create(sockfd, 1024); // TODO error cheking
 
-    struct vln_packet_header spacket;
+    struct taskexecutor *taskexecutor =
+        taskexecutor_create((Handler)&manager_sender_handler, tcpwrapper);
+
+    pthread_t sm;
+    pthread_create(&sm, NULL, manager_sender_worker, taskexecutor);
+
+    struct vln_packet_header *spacket =
+        malloc(sizeof(struct vln_packet_header));
     struct vln_packet_header rpacket;
 
-    spacket.type = INIT;
-    spacket.payload_length = 0;
-    if (send_wrap(tcpwrapper, (void *)&spacket,
-                  sizeof(struct vln_packet_header)) != 0) {
-        printf("error send_wrap INIT\n");
-    } else {
-        printf("send_wrap INIT\n");
-    }
+    spacket->type = INIT;
+    spacket->payload_length = 0;
+
+    struct task_info *task_info = malloc(sizeof(struct task_info));
+    task_info->operation = INIT;
+    task_info->args = spacket;
+
+    taskexecutor_add_task(taskexecutor, task_info);
 
     while (1) {
         printf("recv\n");
@@ -265,7 +303,7 @@ void connect_network_tcp()
             router =
                 router_create(ntohl(rpayload.vaddr),
                               ntohl(rpayload.vaddr) & ntohl(rpayload.broadaddr),
-                              ntohl(rpayload.broadaddr));
+                              ntohl(rpayload.broadaddr), taskexecutor);
             break;
         }
         case ROOTNODES: {
@@ -306,7 +344,7 @@ int main(int argc, char **argv)
     // pthread_create(&rt, NULL, recv_thread, NULL);
     // pthread_create(&st, NULL, send_thread, NULL);
 
-    connect_network_tcp();
+    manager_worker();
 
     pthread_exit(NULL);
     return 0;

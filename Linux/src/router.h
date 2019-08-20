@@ -2,12 +2,14 @@
 #define __VLN_ROUTER__
 
 #include "lib/protocol.h"
+#include "lib/taskexecutor.h"
 #include <stdlib.h>
 
 struct router;
 
 struct router *router_create(uint32_t vaddr, uint32_t net_addr,
-                             uint32_t broad_addr);
+                             uint32_t broad_addr,
+                             struct taskexecutor *taskexecutor);
 
 void router_destroy(struct router *);
 

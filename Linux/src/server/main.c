@@ -11,6 +11,7 @@
 #include <sys/types.h>
 
 #include "../lib/protocol.h"
+#include "../lib/taskexecutor.h"
 #include "../lib/tcpwrapper.h"
 #include "../lib/uthash.h"
 #include "../lib/utlist.h"
@@ -60,8 +61,51 @@ uint32_t get_available_address()
     return 0;
 }
 
+void manager_sender_handler(void *args, struct task_info *task_info)
+{
+    struct tcpwrapper *tcpwrapper = (struct tcpwrapper *)args;
+
+    struct vln_packet_header *spacket;
+    switch (task_info->operation) {
+    case INIT: {
+        printf("Send INIT\n");
+        spacket = (struct vln_packet_header *)task_info->args;
+        if (send_wrap(tcpwrapper, (void *)task_info->args,
+                      sizeof(struct vln_packet_header) +
+                          ntohl(spacket->payload_length)) != 0) {
+            printf("BOLOMDE VER GAIGZAVNA\n");
+        } else {
+            printf("INITR Sent\n");
+        }
+        free(spacket);
+        break;
+    }
+    case ROOTNODES: {
+        printf("Send Root INIT\n");
+        spacket = (struct vln_packet_header *)task_info->args;
+        if (send_wrap(tcpwrapper, (void *)task_info->args,
+                      sizeof(struct vln_packet_header) +
+                          ntohl(spacket->payload_length)) != 0) {
+            printf("BOLOMDE VER GAIGZAVNA\n");
+        } else {
+            printf("INITR Sent\n");
+        }
+        free(spacket);
+        break;
+    }
+    default:
+        printf("ERROR: Unknown Packet Type\n");
+        break;
+    }
+}
+
+void *manager_sender_worker(void *arg)
+{
+    taskexecutor_start((struct taskexecutor *)arg);
+}
+
 // TODO: error handling.
-void *worker(void *arg)
+void *manager_worker(void *arg)
 {
     struct server_connection *scon = (struct server_connection *)arg;
     socklen_t c_addr_size = sizeof(struct sockaddr_in);
@@ -77,7 +121,24 @@ void *worker(void *arg)
 
     struct tcpwrapper *tcpwrapper = tcpwrapper_create(scon->sockfd, 1024);
 
+    struct taskexecutor *taskexecutor =
+        taskexecutor_create((Handler)&manager_sender_handler, tcpwrapper);
+
+    pthread_t sm;
+    pthread_create(&sm, NULL, manager_sender_worker, taskexecutor);
+
+    // get available adres
+    _router = router_create(_network_address + 1, _network_address,
+                            _broadcast_address, taskexecutor);
+
     struct vln_packet_header rpacket;
+
+    struct task_info *task_info;
+    // struct task_info *task_info = malloc(sizeof(struct task_info));
+    // task_info->operation = INIT;
+    // task_info->args = spacket;
+
+    // taskexecutor_add_task(taskexecutor, task_info);
 
     while (1) {
 
@@ -111,33 +172,41 @@ void *worker(void *arg)
                 // TODO: ERROR: Already assigned.
             }
 
-            uint8_t spacket[sizeof(struct vln_packet_header) +
-                            sizeof(struct vln_initr_payload)];
+            uint8_t *spacket = malloc(sizeof(struct vln_packet_header) +
+                                      sizeof(struct vln_initr_payload));
             struct vln_packet_header *sheader =
                 (struct vln_packet_header *)spacket;
             struct vln_initr_payload *spayload =
                 (struct vln_initr_payload *)PACKET_PAYLOAD(spacket);
             sheader->type = INITR;
-            sheader->payload_length = sizeof(struct vln_initr_payload);
+            sheader->payload_length = htonl(sizeof(struct vln_initr_payload));
             spayload->vaddr = htonl(scon->vaddr);
             spayload->maskaddr = htonl(_network_mask_address);
             spayload->broadaddr = htonl(_broadcast_address);
 
-            if (send_wrap(tcpwrapper, (void *)spacket, sizeof(spacket)) != 0) {
-                printf("BOLOMDE VER GAIGZAVNA\n");
-            } else {
-                printf("INITR Sent\n");
-            }
+            task_info = malloc(sizeof(struct task_info));
+            task_info->operation = INIT;
+            task_info->args = spacket;
 
-            uint8_t spacket_root[sizeof(struct vln_packet_header) +
-                                 sizeof(struct vln_connection_payload)];
+            taskexecutor_add_task(taskexecutor, task_info);
+            // if (send_wrap(tcpwrapper, (void *)spacket, sizeof(spacket)) != 0)
+            // {
+            //     printf("BOLOMDE VER GAIGZAVNA\n");
+            // } else {
+            //     printf("INITR Sent\n");
+            // }
+
+            uint8_t *spacket_root =
+                malloc(sizeof(struct vln_packet_header) +
+                       sizeof(struct vln_connection_payload));
 
             sheader = (struct vln_packet_header *)spacket_root;
             struct vln_connection_payload *spayload_root =
                 (struct vln_connection_payload *)PACKET_PAYLOAD(spacket_root);
 
             sheader->type = ROOTNODES;
-            sheader->payload_length = sizeof(struct vln_connection_payload);
+            sheader->payload_length =
+                htonl(sizeof(struct vln_connection_payload));
 
             uint32_t root_addr;
             uint16_t root_port;
@@ -147,153 +216,18 @@ void *worker(void *arg)
             spayload_root->raddr = htonl(_rserverip);
             spayload_root->port = htons(root_port);
 
-            if (send_wrap(tcpwrapper, (void *)spacket_root,
-                          sizeof(spacket_root)) != 0) {
-                printf("BOLOMDE VER GAIGZAVNA\n");
-            } else {
-                printf("ROOTNODES Sent\n");
-            }
+            task_info = malloc(sizeof(struct task_info));
+            task_info->operation = ROOTNODES;
+            task_info->args = spacket_root;
 
-            break;
-        }
-        case HOSTS: {
-            assert(rpacket.payload_length == 0);
-            printf("HOSTS RECVED\n");
+            taskexecutor_add_task(taskexecutor, task_info);
+            // if (send_wrap(tcpwrapper, (void *)spacket_root,
+            //               sizeof(spacket_root)) != 0) {
+            //     printf("BOLOMDE VER GAIGZAVNA\n");
+            // } else {
+            //     printf("ROOTNODES Sent\n");
+            // }
 
-            pthread_mutex_lock(&_connectionsm);
-
-            int payload_size =
-                _server_connections_count * sizeof(struct vln_vaddr_payload);
-
-            uint8_t spacket[sizeof(struct vln_packet_header) + payload_size];
-            struct vln_packet_header *sheader =
-                (struct vln_packet_header *)spacket;
-            struct vln_vaddr_payload *vaddrs =
-                (struct vln_vaddr_payload *)PACKET_PAYLOAD(spacket);
-            sheader->type = HOSTSR;
-            sheader->payload_length = payload_size;
-
-            struct server_connection *server_con_elem;
-            for (server_con_elem = _server_connections; server_con_elem != NULL;
-                 server_con_elem = server_con_elem->hh.next) {
-                if (server_con_elem->vaddr == scon->vaddr) {
-                    continue;
-                }
-                vaddrs->flags = 0;
-                vaddrs->ip_addr = server_con_elem->vaddr;
-                vaddrs++;
-            }
-
-            vaddrs->flags = VLN_SERVER | VLN_VIRTUALADDR;
-            vaddrs->ip_addr = _serverip;
-
-            pthread_mutex_unlock(&_connectionsm);
-
-            if (send_wrap(tcpwrapper, (void *)spacket, sizeof(spacket)) != 0) {
-                printf("BOLOMDE VER GAIGZAVNA\n");
-            } else {
-                printf("HOSTSR SENT\n");
-            }
-            break;
-        }
-        case CONNECT: {
-            assert(rpacket.payload_length ==
-                   sizeof(struct vln_server_connect_payload));
-            printf("CONNECT RECVED\n");
-
-            struct vln_server_connect_payload *rpayload =
-                (struct vln_server_connect_payload *)PACKET_PAYLOAD(&rpacket);
-
-            if (rpayload->vaddr == _serverip) {
-                printf("connect to server ip\n");
-                // router_add_connection(P2P, scon->vaddr,
-                // c_addr.sin_addr.s_addr,
-                //                      0);
-
-                uint8_t spacket[sizeof(struct vln_packet_header) +
-                                sizeof(struct vln_connect_payload)];
-                struct vln_packet_header *sheader =
-                    (struct vln_packet_header *)spacket;
-                struct vln_connect_payload *spayload =
-                    (struct vln_connect_payload *)PACKET_PAYLOAD(spacket);
-                sheader->type = CONNECT;
-                sheader->payload_length = sizeof(struct vln_connect_payload);
-
-                spayload->con_type = P2P;
-                spayload->vaddr = _serverip;
-                spayload->raddr = _rserverip; // TODO ENDIAN
-                spayload->rport = htons(33508);
-
-                if (send_wrap(tcpwrapper, (void *)spacket,
-                              sizeof(struct vln_packet_header) +
-                                  sheader->payload_length) != 0) {
-                    printf("BOLOMDE VER GAIGZAVNA1!!!\n");
-                } else {
-                    printf("Sent0 \n");
-                }
-                break; // TODO
-            }
-
-            struct server_connection *pcon;
-
-            // lock ???
-            HASH_FIND_INT(_server_connections, &rpayload->vaddr, pcon);
-            // unlock ???
-            // pcon sheidzleba waishalos gamoyenebisas, race
-            // conditions gadawyveta unda.
-
-            if (pcon == NULL) { // TODO error check.
-                printf("NULLLLLLLLLLLLLLLLL\n");
-                break;
-            }
-
-            // uint32_t raddr1;
-            // uint16_t rport1;
-            // uint32_t raddr2;
-            // uint16_t rport2;
-            // router_get_raddr(scon->vaddr, &raddr1, &rport1);
-            // router_get_raddr(scon->vaddr, &raddr2, &rport2);
-            // printf("INCONNECT %ud, %ud, %ud, %ud\n", raddr1, rport1, raddr2,
-            //        rport2);
-
-            uint8_t spacket[sizeof(struct vln_packet_header) +
-                            sizeof(struct vln_connect_payload)];
-            struct vln_packet_header *sheader =
-                (struct vln_packet_header *)spacket;
-            struct vln_connect_payload *spayload =
-                (struct vln_connect_payload *)PACKET_PAYLOAD(spacket);
-            sheader->type = CONNECT;
-            sheader->payload_length = sizeof(struct vln_connect_payload);
-
-            if (rpayload->con_type == PYRAMID) {
-                spayload->con_type = PYRAMID;
-
-                spayload->vaddr = scon->vaddr;
-                spayload->raddr = _rserverip; // TODO ENDIAN
-                spayload->rport = htons(33508);
-
-                if (send_wrap(tcpwrapper, (void *)spacket,
-                              sizeof(struct vln_packet_header) +
-                                  sheader->payload_length) != 0) {
-                    printf("BOLOMDE VER GAIGZAVNA1!!!\n");
-                } else {
-                    printf("Sent1 \n");
-                }
-
-                spayload->vaddr = pcon->vaddr;
-                // spayload->raddr = raddr2;
-                // spayload->rport = rport2;
-
-                if (send_wrap(tcpwrapper, (void *)spacket,
-                              sizeof(struct vln_packet_header) +
-                                  sheader->payload_length) != 0) {
-                    printf("BOLOMDE VER GAIGZAVNA2!!!\n");
-                } else {
-                    printf("Sent2 \n");
-                }
-            } else {
-                printf("ERROR: Unknown Connection Type\n");
-            }
             break;
         }
         default:
@@ -334,7 +268,7 @@ void recv_connections(int port)
         scon->sockfd = cfd;
 
         pthread_t t;
-        pthread_create(&t, NULL, worker, scon);
+        pthread_create(&t, NULL, manager_worker, scon);
     }
 }
 
@@ -363,9 +297,6 @@ int init(char *network_addr, char *network_bits)
     inet_ntop(AF_INET, &_network_address, server_addr, INET_ADDRSTRLEN);
     printf("SERVER ADDR: %s %d\n", server_addr, htonl(_network_address + 1));
     pthread_mutex_init(&_connectionsm, NULL);
-    // get available adres
-    _router = router_create(_network_address + 1, _network_address,
-                            _broadcast_address);
     printf("Router Initialized!\n");
 
     return 0;

@@ -25,7 +25,7 @@ typedef uint8_t vln_packet_type;
 
 struct vln_packet_header {
     vln_packet_type type;
-    uint32_t payload_length;
+    uint32_t payload_length; // TODO endian
 } __attribute__((packed));
 
 struct vln_initr_payload {
