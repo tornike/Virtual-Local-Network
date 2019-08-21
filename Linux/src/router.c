@@ -69,17 +69,25 @@ struct router {
     pthread_mutex_t peers_lock;
 };
 
-void *prepear_update_packet_2(struct connection *new_con)
+void *prepear_update_packet_2(struct router *router, struct connection *new_con)
 {
-    uint8_t *spacket = malloc(sizeof(struct vln_packet_header) +
-                              sizeof(struct vln_update_payload));
+    uint8_t *spacket =
+        malloc(sizeof(struct vln_packet_header) + 2 + sizeof(uint32_t) +
+               sizeof(struct vln_update_payload));
     struct vln_packet_header *sheader = (struct vln_packet_header *)spacket;
+    // *((uint32_t *)PACKET_PAYLOAD(spacket)) = htonl(new_con->vaddr);
+
+    *(uint32_t *)PACKET_PAYLOAD(spacket) = htonl(router->vaddr);
+    *((uint32_t *)PACKET_PAYLOAD(spacket) + 1) = 0;
+
     sheader->type = UPDATE;
-    sheader->payload_length = htonl(sizeof(struct vln_update_payload));
+    sheader->payload_length =
+        htonl(sizeof(uint32_t) + 2 * sizeof(struct vln_update_payload));
     struct vln_update_payload *update = PACKET_PAYLOAD(spacket);
     update->raddr = CONNECTIONGADDR(new_con->addr_port);
     update->rport = CONNECTIONGPORT(new_con->addr_port);
-    update->vaddr = 0;
+    update->vaddr = htonl(new_con->vaddr);
+
     return spacket;
 }
 
@@ -358,6 +366,11 @@ int router_add_connection(struct router *router, vln_connection_type ctype,
     if (isActive == 1) {
         struct task_info *task_info = malloc(sizeof(struct task_info));
         task_info->args = prepear_update_packet(router, new_con->vaddr);
+        task_info->operation = UPDATE;
+        taskexecutor_add_task(router->send_manager, task_info);
+
+        task_info = malloc(sizeof(struct task_info));
+        task_info->args = prepear_update_packet_2(router, new_con);
         task_info->operation = UPDATE;
         taskexecutor_add_task(router->send_manager, task_info);
     }
