@@ -82,10 +82,11 @@ void *prepear_update_packet_2(struct router *router, struct connection *new_con)
 
     sheader->type = UPDATE;
     sheader->payload_length =
-        htonl(sizeof(uint32_t) + 2 * sizeof(struct vln_update_payload));
-    struct vln_update_payload *update = PACKET_PAYLOAD(spacket);
-    update->raddr = CONNECTIONGADDR(new_con->addr_port);
-    update->rport = CONNECTIONGPORT(new_con->addr_port);
+        htonl(2 * sizeof(uint32_t) + sizeof(struct vln_update_payload));
+    struct vln_update_payload *update =
+        PACKET_PAYLOAD(spacket) + 2 * sizeof(uint32_t);
+    update->raddr = htonl(CONNECTIONGADDR(new_con->addr_port));
+    update->rport = htonl(CONNECTIONGPORT(new_con->addr_port));
     update->vaddr = htonl(new_con->vaddr);
 
     return spacket;
@@ -103,14 +104,14 @@ void *prepear_update_packet(struct router *router, uint32_t dvaddr)
     *(uint32_t *)PACKET_PAYLOAD(spacket) = htonl(router->vaddr);
     *((uint32_t *)PACKET_PAYLOAD(spacket) + 1) = htonl(dvaddr);
     struct vln_update_payload *update =
-        PACKET_PAYLOAD(spacket) + sizeof(uint32_t);
+        PACKET_PAYLOAD(spacket) + 2 * sizeof(uint32_t);
 
     struct connection *s;
     uint32_t real_count = 0;
     for (s = router->peers; s != NULL; s = (struct connection *)(s->hh.next)) {
         if (s->active == 1) {
-            update->raddr = CONNECTIONGADDR(s->addr_port);
-            update->rport = CONNECTIONGPORT(s->addr_port);
+            update->raddr = htonl(CONNECTIONGADDR(s->addr_port));
+            update->rport = htonl(CONNECTIONGPORT(s->addr_port));
             update->vaddr = s->vaddr;
             update = update + 1;
             real_count++;
