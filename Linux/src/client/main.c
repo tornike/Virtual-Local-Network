@@ -23,6 +23,7 @@
 
 // TODO!!!!!!!
 #define UPDATETABLE 700
+#define BUFFERSIZE 1024
 
 char *_server_addr = "34.65.70.129"; // Must be changed.
 int _server_port_temp = 33507; // Must be changed.
@@ -109,37 +110,39 @@ int create_adapter(char *name, int flags)
 
 void *recv_thread(void *arg)
 {
+    struct router *router = (struct router *)arg;
     // TODO
-    // struct sockaddr_in raddr;
-    // memset(&raddr, 0, sizeof(struct sockaddr_in));
+    struct sockaddr_in raddr;
+    memset(&raddr, 0, sizeof(struct sockaddr_in));
 
-    // while (1) {
-    //     char buff[BUFFERSIZE];
-    //     int size = router_receive(buff, BUFFERSIZE);
+    while (1) {
+        char buff[BUFFERSIZE];
+        int size = router_receive(router, buff, BUFFERSIZE);
 
-    //     char saddr[INET_ADDRSTRLEN];
-    //     char daddr[INET_ADDRSTRLEN];
-    //     inet_ntop(AF_INET, &((struct iphdr *)buff)->saddr, saddr,
-    //               INET_ADDRSTRLEN);
-    //     inet_ntop(AF_INET, &((struct iphdr *)buff)->daddr, daddr,
-    //               INET_ADDRSTRLEN);
+        char saddr[INET_ADDRSTRLEN];
+        char daddr[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &((struct iphdr *)buff)->saddr, saddr,
+                  INET_ADDRSTRLEN);
+        inet_ntop(AF_INET, &((struct iphdr *)buff)->daddr, daddr,
+                  INET_ADDRSTRLEN);
 
-    //     printf("Received from V %s %s %d bytes\n", saddr, daddr, size);
+        printf("Received from V %s %s %d bytes\n", saddr, daddr, size);
 
-    //     write(tunfd, buff, size);
-    // }
+        write(_tunfd, buff, size);
+    }
     return NULL;
 }
 
 void *send_thread(void *arg)
 {
+    struct router *router = (struct router *)arg;
     // TODO
-    // while (1) {
-    //     char buff[BUFFERSIZE];
-    //     int size = read(tunfd, buff + sizeof(struct vln_data_packet_header),
-    //                     BUFFERSIZE - sizeof(struct vln_data_packet_header));
-    //     router_transmit(buff, size);
-    // }
+    while (1) {
+        char buff[BUFFERSIZE];
+        int size = read(_tunfd, buff + sizeof(struct vln_data_packet_header),
+                        BUFFERSIZE - sizeof(struct vln_data_packet_header));
+        router_transmit(router, buff, size);
+    }
 
     return NULL;
 }
@@ -325,6 +328,11 @@ void manager_worker()
                 ntohl(rpayload.vaddr),
                 ntohl(rpayload.vaddr) & ntohl(rpayload.broadaddr),
                 ntohl(rpayload.broadaddr), router_sockfd, rlistener);
+
+            pthread_t rt, st;
+            pthread_create(&rt, NULL, recv_thread, (void *)router);
+            pthread_create(&st, NULL, send_thread, (void *)router);
+
             break;
         }
         case ROOTNODE: {
@@ -378,10 +386,6 @@ int main(int argc, char **argv)
     strcpy(adapter_name, "testint1");
 
     _tunfd = create_adapter(adapter_name, IFF_TUN | IFF_NO_PI);
-
-    // pthread_t rt, st;
-    // pthread_create(&rt, NULL, recv_thread, NULL);
-    // pthread_create(&st, NULL, send_thread, NULL);
 
     manager_worker();
 

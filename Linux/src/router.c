@@ -200,8 +200,8 @@ int router_transmit(struct router *router, void *packet, size_t size)
     uint32_t vaddr_be;
     struct itimerspec iti;
 
-    void *packetd = ((struct vln_data_packet_header *)packet) + 1;
     void *packeth = ((struct vln_data_packet_header *)packet);
+    void *packetd = ((struct vln_data_packet_header *)packet) + 1;
 
     vaddr_be = ntohl(((struct iphdr *)packetd)->daddr);
 
@@ -217,8 +217,9 @@ int router_transmit(struct router *router, void *packet, size_t size)
             ssize = -1;
         } else {
             // need this??
-            ((struct vln_data_packet_header *)packeth)->type =
-                router->routing_table[key]->con_type == P2P ? DATA : RETRANSMIT;
+            // ((struct vln_data_packet_header *)packeth)->type =
+            //     router->routing_table[key]->con_type == P2P ? DATA :
+            //     RETRANSMIT;
             // need this??
 
             saddr.sin_port =
@@ -254,24 +255,23 @@ int router_transmit(struct router *router, void *packet, size_t size)
 
 int router_receive(struct router *router, void *buffer, size_t size)
 {
-    // sem_wait(&router->recv_buffer->used_slots);
-    // struct buffer_slot *slot =
-    //     &router->recv_buffer->slots[router->recv_buffer->read_idx];
+    sem_wait(&router->recv_buffer->used_slots);
+    struct router_buffer_slot *slot =
+        &router->recv_buffer->slots[router->recv_buffer->read_idx];
 
-    // size_t real_size =
-    //     size > slot->used_size - sizeof(struct vln_data_packet_header) ?
-    //         slot->used_size - sizeof(struct vln_data_packet_header) :
-    //         size;
+    size_t real_size =
+        size > slot->used_size - sizeof(struct vln_data_packet_header) ?
+            slot->used_size - sizeof(struct vln_data_packet_header) :
+            size;
 
-    // memcpy(buffer, slot->buffer + sizeof(struct vln_data_packet_header),
-    //        real_size);
+    memcpy(buffer, slot->buffer + sizeof(struct vln_data_packet_header),
+           real_size);
 
-    // sem_post(&router->recv_buffer->free_slots);
-    // router->recv_buffer->read_idx =
-    //     (router->recv_buffer->read_idx + 1) % MAX_PACKETS;
+    sem_post(&router->recv_buffer->free_slots);
+    router->recv_buffer->read_idx =
+        (router->recv_buffer->read_idx + 1) % MAX_PACKETS;
 
-    // return real_size;
-    return 0;
+    return real_size;
 }
 
 void router_get_raddr(struct router *router, uint32_t *raddr, uint16_t *rport)
@@ -416,14 +416,22 @@ static void *recv_worker(void *arg)
 
         if (header->type == DATA) {
             printf("Data Recvd!!!\n");
-            router->recv_buffer->write_idx =
-                (router->recv_buffer->write_idx + 1) % MAX_PACKETS;
-            sem_post(&router->recv_buffer->used_slots);
+            void *packeth = ((struct vln_data_packet_header *)slot->buffer);
+            void *packetd = ((struct vln_data_packet_header *)slot->buffer) + 1;
+
+            uint32_t vaddr = ntohl(((struct iphdr *)packetd)->daddr);
+            if (vaddr == router->vaddr) {
+                router->recv_buffer->write_idx =
+                    (router->recv_buffer->write_idx + 1) % MAX_PACKETS;
+                sem_post(&router->recv_buffer->used_slots);
+            } else {
+                printf("Retransmiting\n");
+                router_transmit(router, slot->buffer, slot->used_size);
+                sem_post(&router->recv_buffer->free_slots);
+                continue;
+            }
         } else if (header->type == RETRANSMIT) {
-            printf("Retransmit Recvd\n");
-            router_transmit(router, slot->buffer, slot->used_size);
-            sem_post(&router->recv_buffer->free_slots);
-            continue;
+
         } else if (header->type == KEEPALIVE) {
             printf("KEEPALIVE Recvd\n");
             sem_post(&router->recv_buffer->free_slots);
