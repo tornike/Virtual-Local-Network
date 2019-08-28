@@ -336,7 +336,10 @@ void manager_worker()
 
             printf("Root raddr: %u\n", ntohl(rpayload.raddr));
             printf("Root port: %u\n", ntohs(rpayload.rport));
-            printf("Root vaddr: %u\n", ntohs(rpayload.vaddr));
+            printf("Root vaddr: %u\n", ntohl(rpayload.vaddr));
+
+            router_send_init(router, ntohl(rpayload.raddr),
+                             ntohs(rpayload.rport));
 
             // router_add_connection(router, 0, ntohl(rpayload.vaddr),
             //                       ntohl(rpayload.raddr),

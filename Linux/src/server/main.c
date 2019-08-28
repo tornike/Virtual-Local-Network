@@ -247,7 +247,7 @@ void *manager_sender_worker(void *arg)
 // TODO: error handling.
 void *manager_worker(void *arg)
 {
-    int sockfd = *(int *)arg;
+    int sockfd = (int)arg;
 
     struct tcpwrapper *tcpwrapper = tcpwrapper_create(sockfd, 1024);
 
@@ -305,7 +305,7 @@ void *manager_worker(void *arg)
             (struct vln_rootnode_payload *)PACKET_PAYLOAD(spacket);
         sheader->type = ROOTNODE;
         sheader->payload_length = htonl(sizeof(struct vln_rootnode_payload));
-        spayload->vaddr = 0; // ????
+        spayload->vaddr = htonl(curr_net->address);
         spayload->raddr = htonl(curr_net->router_addr);
         spayload->rport = htons(curr_net->router_port);
 
@@ -444,8 +444,8 @@ int main(int argc, char **argv)
     pthread_create(&sm, NULL, manager_sender_worker,
                    rlistener); // executorshic wava mgoni
 
-    new_net->router_addr = _serverip;
-    new_net->router_addr = ntohs(udp_addr.sin_port);
+    new_net->router_addr = _rserverip;
+    new_net->router_port = ntohs(udp_addr.sin_port);
     new_net->router =
         router_create(new_net->address, new_net->address,
                       new_net->broadcast_address, router_sockfd, rlistener);
