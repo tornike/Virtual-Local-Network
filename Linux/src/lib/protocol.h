@@ -15,7 +15,7 @@
 #define UADDR 10
 #define DATA 11
 #define RETRANSMIT 12
-#define ROOTNODES 13
+#define ROOTNODE 13
 #define UPDATE 14
 
 /* Flags */
@@ -31,6 +31,8 @@ struct vln_packet_header {
 
 /// vadr real adry real port
 struct vln_update_payload {
+    uint32_t svaddr;
+    uint32_t dvaddr;
     uint32_t vaddr;
     uint32_t raddr;
     uint16_t rport;
@@ -57,7 +59,7 @@ struct vln_addr_payload {
 } __attribute__((packed));
 
 // TODO
-struct vln_connection_payload {
+struct vln_rootnode_payload {
     uint32_t vaddr;
     uint32_t raddr;
     uint16_t rport;

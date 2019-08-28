@@ -24,14 +24,17 @@
 // TODO!!!!!!!
 #define UPDATETABLE 700
 
-struct vln_task_info_update_arg {
-    uint32_t vaddr;
-    uint8_t payload;
-};
-
 char *_server_addr = "34.65.70.129"; // Must be changed.
 int _server_port_temp = 33507; // Must be changed.
 int _tunfd;
+
+void router_listener(void *args, struct task_info *tinfo)
+{
+    struct tcpwrapper *server_con = (struct tcpwrapper *)args;
+    // TODO;
+    free(tinfo);
+    printf("Peers Changed\n");
+}
 
 /* Arguments taken by the function:
  *
@@ -125,6 +128,7 @@ void *recv_thread(void *arg)
 
     //     write(tunfd, buff, size);
     // }
+    return NULL;
 }
 
 void *send_thread(void *arg)
@@ -239,6 +243,7 @@ void manager_sender_handler(void *args, struct task_info *task_info)
 void *manager_sender_worker(void *arg)
 {
     taskexecutor_start((struct taskexecutor *)arg);
+    return NULL;
 }
 
 void manager_worker()
@@ -269,25 +274,19 @@ void manager_worker()
     struct tcpwrapper *tcpwrapper =
         tcpwrapper_create(sockfd, 1024); // TODO error cheking
 
-    struct taskexecutor *taskexecutor =
-        taskexecutor_create((Handler)&manager_sender_handler, tcpwrapper);
+    struct taskexecutor *rlistener =
+        taskexecutor_create((Handler)&router_listener, tcpwrapper);
 
     pthread_t sm;
-    pthread_create(&sm, NULL, manager_sender_worker, taskexecutor);
+    pthread_create(&sm, NULL, manager_sender_worker, rlistener);
 
     struct vln_packet_header *spacket =
         malloc(sizeof(struct vln_packet_header));
-    struct vln_packet_header rpacket;
 
     spacket->type = INIT;
     spacket->payload_length = 0;
 
-    struct task_info *task_info = malloc(sizeof(struct task_info));
-    task_info->operation = INIT;
-    task_info->args = spacket;
-
-    taskexecutor_add_task(taskexecutor, task_info);
-
+    struct vln_packet_header rpacket;
     while (1) {
         printf("recv\n");
         if (recv_wrap(tcpwrapper, (void *)&rpacket,
@@ -309,7 +308,7 @@ void manager_worker()
             break;
         }
         case INITR: {
-            printf("Receive INITR\n");
+            printf("Received INITR\n");
             struct vln_initr_payload rpayload;
             if (recv_wrap(tcpwrapper, (void *)&rpayload,
                           sizeof(struct vln_initr_payload)) != 0)
@@ -321,55 +320,45 @@ void manager_worker()
                 exit(EXIT_FAILURE);
             }
 
-            router =
-                router_create(ntohl(rpayload.vaddr),
-                              ntohl(rpayload.vaddr) & ntohl(rpayload.broadaddr),
-                              ntohl(rpayload.broadaddr), taskexecutor);
+            int router_sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+            router = router_create(
+                ntohl(rpayload.vaddr),
+                ntohl(rpayload.vaddr) & ntohl(rpayload.broadaddr),
+                ntohl(rpayload.broadaddr), router_sockfd, rlistener);
             break;
         }
-        case ROOTNODES: {
-
-            printf("Enter: ROOTNODES\n");
-            struct vln_connection_payload rpayload;
+        case ROOTNODE: {
+            printf("Recived: ROOTNODE\n");
+            struct vln_rootnode_payload rpayload;
             if (recv_wrap(tcpwrapper, (void *)&rpayload,
-                          sizeof(struct vln_connection_payload)) != 0)
-                printf("error recv_wrap INITR \n");
-            printf("recive: ROOTNODES\n");
+                          sizeof(struct vln_rootnode_payload)) != 0)
+                printf("error recv_wrap ROOTNODE \n");
 
             printf("Root raddr: %u\n", ntohl(rpayload.raddr));
             printf("Root port: %u\n", ntohs(rpayload.rport));
             printf("Root vaddr: %u\n", ntohs(rpayload.vaddr));
 
-            router_add_connection(router, 0, ntohl(rpayload.vaddr),
-                                  ntohl(rpayload.raddr), ntohs(rpayload.rport),
-                                  0, 1);
+            // router_add_connection(router, 0, ntohl(rpayload.vaddr),
+            //                       ntohl(rpayload.raddr),
+            //                       ntohs(rpayload.rport), 0, 1);
 
             break;
         }
         case UPDATE: {
-            printf("Update Received %d\n", ntohl(rpacket.payload_length));
-            uint32_t svaddr;
-            uint32_t dvaddr;
-            if (recv_wrap(tcpwrapper, (void *)&svaddr, sizeof(uint32_t)) != 0) {
-                // TODO
-            }
-            if (recv_wrap(tcpwrapper, (void *)&dvaddr, sizeof(uint32_t)) != 0) {
-                // TODO
-            }
-            svaddr = ntohl(svaddr);
-            dvaddr = htonl(dvaddr);
-
-            uint32_t payload_length = ntohl(rpacket.payload_length);
-            int update_count = (payload_length - 2 * sizeof(uint32_t)) /
-                               sizeof(struct vln_update_payload);
-            struct vln_update_payload rpayload[update_count];
+            printf("Update Received\n");
+            struct vln_update_payload rpayload;
             if (recv_wrap(tcpwrapper, (void *)&rpayload,
-                          payload_length - 2 * sizeof(uint32_t)) != 0) {
+                          sizeof(struct vln_update_payload)) != 0) {
                 // TODO
             }
-            for (int i = 0; i < update_count; i++) {
-                printf("Individual Update \n");
-            }
+            printf("Update %u %u %u %u %u\n", ntohl(rpayload.svaddr),
+                   ntohl(rpayload.dvaddr), ntohl(rpayload.vaddr),
+                   ntohl(rpayload.raddr), ntohs(rpayload.rport));
+
+            router_update_routing_table(
+                router, ntohl(rpayload.svaddr), ntohl(rpayload.vaddr),
+                ntohl(rpayload.raddr), ntohs(rpayload.rport));
+
             break;
         }
         default:
