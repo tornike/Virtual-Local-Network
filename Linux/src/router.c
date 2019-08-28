@@ -209,23 +209,30 @@ int router_transmit(struct router *router, void *packet, size_t size)
     saddr.sin_family = AF_INET;
 
     pthread_rwlock_rdlock(&router->routing_table_lock);
+    printf("In Router_transmit %u %u %u\n", router->network_addr, router->vaddr,
+           router->broadcast_addr);
     if (vaddr_be > router->network_addr && vaddr_be < router->broadcast_addr) {
         printf("TRANSMIT %u\n", vaddr_be);
-        key = vaddr_be % router->subnet_size;
+        key = vaddr_be - router->network_addr;
         if (router->routing_table[key] == NULL) {
             printf("CONNECTION IS NULL!!!\n");
             ssize = -1;
         } else {
             // need this??
-            // ((struct vln_data_packet_header *)packeth)->type =
-            //     router->routing_table[key]->con_type == P2P ? DATA :
-            //     RETRANSMIT;
+            ((struct vln_data_packet_header *)packeth)->type = DATA;
             // need this??
 
-            saddr.sin_port =
-                htons(CONNECTIONGPORT(router->routing_table[key])); // hton ??
-            saddr.sin_addr.s_addr =
-                htonl(CONNECTIONGADDR(router->routing_table[key])); // hton ??
+            printf("Server con address in Transmit %lu\n",
+                   router->routing_table[key]);
+
+            saddr.sin_port = htons(CONNECTIONGPORT(
+                router->routing_table[key]->addr_port)); // hton ??
+            saddr.sin_addr.s_addr = htonl(CONNECTIONGADDR(
+                router->routing_table[key]->addr_port)); // hton ??
+
+            printf("Sending Data To %u %u\n",
+                   CONNECTIONGADDR(router->routing_table[key]->addr_port),
+                   CONNECTIONGPORT(router->routing_table[key]->addr_port));
 
             ssize =
                 sendto(router->sockfd, packet,
@@ -306,6 +313,7 @@ void router_send_init(struct router *router, uint32_t raddr, uint32_t rport)
 
     struct connection *new_con =
         create_connection(router->network_addr, raddr, rport);
+    printf("Server con address %lu\n", new_con);
     new_con->active = 1;
     set_timers(router, new_con, 10, 0);
     update_routing_table(router, router->network_addr, new_con);
@@ -514,9 +522,8 @@ static void *keep_alive_worker(void *arg)
                 router->sockfd, &packet, sizeof(struct vln_data_packet_header),
                 0, (struct sockaddr *)&saddr, sizeof(struct sockaddr_in));
 
-            printf("KEEPALIVE SENT %u %d\n",
-                   htonl(CONNECTIONGADDR(con->addr_port)),
-                   htons(CONNECTIONGPORT(con->addr_port)));
+            printf("KEEPALIVE SENT %u %d\n", CONNECTIONGADDR(con->addr_port),
+                   CONNECTIONGPORT(con->addr_port));
 
             timerfd_settime(con->timerfds, 0, &iti, NULL);
         }

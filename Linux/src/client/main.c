@@ -23,7 +23,7 @@
 
 // TODO!!!!!!!
 #define UPDATETABLE 700
-#define BUFFERSIZE 1024
+#define BUFFERSIZE 4096
 
 char *_server_addr = "34.65.70.129"; // Must be changed.
 int _server_port_temp = 33507; // Must be changed.
@@ -326,7 +326,7 @@ void manager_worker()
             int router_sockfd = socket(AF_INET, SOCK_DGRAM, 0);
             router = router_create(
                 ntohl(rpayload.vaddr),
-                ntohl(rpayload.vaddr) & ntohl(rpayload.broadaddr),
+                ntohl(rpayload.vaddr) & ntohl(rpayload.maskaddr),
                 ntohl(rpayload.broadaddr), router_sockfd, rlistener);
 
             pthread_t rt, st;
