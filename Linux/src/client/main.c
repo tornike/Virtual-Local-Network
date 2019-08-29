@@ -25,9 +25,11 @@
 #define UPDATETABLE 700
 #define BUFFERSIZE 4096
 
+//===========GLOBALS===========
 char *_server_addr = "34.65.70.129"; // Must be changed.
 int _server_port_temp = 33507; // Must be changed.
 int _tunfd;
+//===========GLOBALS===========
 
 void router_listener(void *args, struct task_info *tinfo)
 {
@@ -108,45 +110,6 @@ int create_adapter(char *name, int flags)
     return fd;
 }
 
-void *recv_thread(void *arg)
-{
-    struct router *router = (struct router *)arg;
-    // TODO
-    struct sockaddr_in raddr;
-    memset(&raddr, 0, sizeof(struct sockaddr_in));
-
-    while (1) {
-        char buff[BUFFERSIZE];
-        int size = router_receive(router, buff, BUFFERSIZE);
-
-        char saddr[INET_ADDRSTRLEN];
-        char daddr[INET_ADDRSTRLEN];
-        inet_ntop(AF_INET, &((struct iphdr *)buff)->saddr, saddr,
-                  INET_ADDRSTRLEN);
-        inet_ntop(AF_INET, &((struct iphdr *)buff)->daddr, daddr,
-                  INET_ADDRSTRLEN);
-
-        printf("Received from V %s %s %d bytes\n", saddr, daddr, size);
-
-        write(_tunfd, buff, size);
-    }
-    return NULL;
-}
-
-void *send_thread(void *arg)
-{
-    struct router *router = (struct router *)arg;
-    // TODO
-    while (1) {
-        char buff[BUFFERSIZE];
-        int size = read(_tunfd, buff + sizeof(struct vln_data_packet_header),
-                        BUFFERSIZE - sizeof(struct vln_data_packet_header));
-        router_transmit(router, buff, size);
-    }
-
-    return NULL;
-}
-
 int add_vaddr_tunnel_interface(struct vln_initr_payload *paylod)
 {
 
@@ -206,6 +169,45 @@ int add_vaddr_tunnel_interface(struct vln_initr_payload *paylod)
     return 1;
 }
 
+void *recv_thread(void *arg)
+{
+    struct router *router = (struct router *)arg;
+    // TODO
+    struct sockaddr_in raddr;
+    memset(&raddr, 0, sizeof(struct sockaddr_in));
+
+    char buff[BUFFERSIZE];
+    while (1) {
+        int size = router_receive(router, buff, BUFFERSIZE);
+
+        char saddr[INET_ADDRSTRLEN];
+        char daddr[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &((struct iphdr *)buff)->saddr, saddr,
+                  INET_ADDRSTRLEN);
+        inet_ntop(AF_INET, &((struct iphdr *)buff)->daddr, daddr,
+                  INET_ADDRSTRLEN);
+
+        printf("Received from V %s %s %d bytes\n", saddr, daddr, size);
+
+        write(_tunfd, buff, size);
+    }
+    return NULL;
+}
+
+void *send_thread(void *arg)
+{
+    struct router *router = (struct router *)arg;
+    // TODO
+    char buff[BUFFERSIZE];
+    while (1) {
+        int size = read(_tunfd, buff + sizeof(struct vln_data_packet_header),
+                        BUFFERSIZE - sizeof(struct vln_data_packet_header));
+        router_transmit(router, buff, size);
+    }
+
+    return NULL;
+}
+
 void manager_sender_handler(void *args, struct task_info *task_info)
 {
     struct tcpwrapper *tcpwrapper = (struct tcpwrapper *)args;
@@ -243,12 +245,6 @@ void manager_sender_handler(void *args, struct task_info *task_info)
     }
 }
 
-void *manager_sender_worker(void *arg)
-{
-    taskexecutor_start((struct taskexecutor *)arg);
-    return NULL;
-}
-
 void manager_worker()
 {
     int sockfd;
@@ -280,8 +276,7 @@ void manager_worker()
     struct taskexecutor *rlistener =
         taskexecutor_create((Handler)&router_listener, tcpwrapper);
 
-    pthread_t sm;
-    pthread_create(&sm, NULL, manager_sender_worker, rlistener);
+    taskexecutor_start(rlistener);
 
     struct vln_packet_header *spacket =
         malloc(sizeof(struct vln_packet_header));
@@ -301,13 +296,13 @@ void manager_worker()
         case CONNECT: {
             printf("Receive CONNECT\n");
 
-            struct vln_connect_payload rpaylod;
-            if (recv_wrap(tcpwrapper, (void *)&rpaylod,
-                          sizeof(struct vln_connect_payload)))
-                printf("error recv_wrap CONNECT_TO_SERVER \n");
+            // struct vln_connect_payload rpaylod;
+            // if (recv_wrap(tcpwrapper, (void *)&rpaylod,
+            //               sizeof(struct vln_connect_payload)))
+            //     printf("error recv_wrap CONNECT_TO_SERVER \n");
 
-            // router_add_connection(rpaylod.con_type, rpaylod.vaddr,
-            //                       rpaylod.raddr, rpaylod.rport);
+            // // router_add_connection(rpaylod.con_type, rpaylod.vaddr,
+            // //                       rpaylod.raddr, rpaylod.rport);
             break;
         }
         case INITR: {

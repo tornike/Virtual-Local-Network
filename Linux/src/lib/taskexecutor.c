@@ -17,7 +17,31 @@ struct taskexecutor {
     struct task_info_wrapper *queue;
     pthread_mutex_t queue_lock;
     pthread_cond_t queue_cond;
+
+    pthread_t worker;
 };
+
+void *executor_worker(void *args)
+{
+    struct taskexecutor *executor = (struct taskexecutor *)args;
+    struct task_info *cur_task_info;
+    struct task_info_wrapper *tiw;
+    while (1) {
+        pthread_mutex_lock(&executor->queue_lock);
+        if (executor->queue == NULL) {
+            pthread_cond_wait(&executor->queue_cond, &executor->queue_lock);
+        }
+        tiw = executor->queue;
+        cur_task_info = tiw->tinfo;
+        DL_DELETE(executor->queue, executor->queue);
+        pthread_mutex_unlock(&executor->queue_lock);
+
+        free(tiw);
+        executor->handler(executor->handler_args, cur_task_info);
+        free(cur_task_info);
+    }
+    return NULL;
+}
 
 struct taskexecutor *taskexecutor_create(Handler handler, void *args)
 {
@@ -43,22 +67,7 @@ void taskexecutor_destroy(struct taskexecutor *executor)
 
 void taskexecutor_start(struct taskexecutor *executor)
 {
-    struct task_info *cur_task_info;
-    struct task_info_wrapper *tiw;
-    while (1) {
-        pthread_mutex_lock(&executor->queue_lock);
-        if (executor->queue == NULL) {
-            pthread_cond_wait(&executor->queue_cond, &executor->queue_lock);
-        }
-        tiw = executor->queue;
-        cur_task_info = tiw->tinfo;
-        DL_DELETE(executor->queue, executor->queue);
-        pthread_mutex_unlock(&executor->queue_lock);
-
-        free(tiw);
-        executor->handler(executor->handler_args, cur_task_info);
-        free(cur_task_info);
-    }
+    pthread_create(&executor->worker, NULL, executor_worker, executor);
 }
 
 void taskexecutor_add_task(struct taskexecutor *executor,

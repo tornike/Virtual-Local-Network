@@ -237,13 +237,6 @@ uint32_t get_available_address(struct vln_network *net)
 //     }
 // }
 
-void *manager_sender_worker(void *arg)
-{
-    taskexecutor_start((struct taskexecutor *)arg);
-
-    return NULL;
-}
-
 // TODO: error handling.
 void *manager_worker(void *arg)
 {
@@ -440,9 +433,7 @@ int main(int argc, char **argv)
     struct taskexecutor *rlistener =
         taskexecutor_create((Handler)&router_listener, new_net);
 
-    pthread_t sm;
-    pthread_create(&sm, NULL, manager_sender_worker,
-                   rlistener); // executorshic wava mgoni
+    taskexecutor_start(rlistener);
 
     new_net->router_addr = _rserverip;
     new_net->router_port = ntohs(udp_addr.sin_port);

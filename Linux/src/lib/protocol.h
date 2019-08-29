@@ -65,17 +65,17 @@ struct vln_rootnode_payload {
     uint16_t rport;
 } __attribute__((packed));
 
-struct vln_server_connect_payload { /* Connect packet payload for server */
-    vln_connection_type con_type;
-    uint32_t vaddr;
-} __attribute__((packed));
+// struct vln_server_connect_payload { /* Connect packet payload for server */
+//     vln_connection_type con_type;
+//     uint32_t vaddr;
+// } __attribute__((packed));
 
-struct vln_connect_payload { /* Connect packet payload for client */
-    vln_connection_type con_type;
-    uint32_t vaddr; /* visac unda daukavshirdes */
-    uint32_t raddr; /* razec unda gaugzavnos traffici */
-    uint16_t rport;
-} __attribute__((packed));
+// struct vln_connect_payload { /* Connect packet payload for client */
+//     vln_connection_type con_type;
+//     uint32_t vaddr; /* visac unda daukavshirdes */
+//     uint32_t raddr; /* razec unda gaugzavnos traffici */
+//     uint16_t rport;
+// } __attribute__((packed));
 
 struct vln_data_packet_header {
     vln_packet_type type;

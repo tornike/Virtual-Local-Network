@@ -1,7 +1,6 @@
 #define _GNU_SOURCE
 
 #include "router.h"
-#include "connection.h"
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netinet/ip.h>
@@ -32,9 +31,6 @@
     *(uint16_t *)((uint32_t *)&addr_port + 1) = port
 #define CONNECTIONGPORT(addr_port) *(uint16_t *)((uint32_t *)&addr_port + 1)
 
-// TODO!!!!!!!
-#define UPDATETABLE 700
-
 struct router_buffer_slot {
     uint8_t buffer[SLOT_SIZE];
     size_t used_size;
@@ -48,31 +44,44 @@ struct router_buffer {
     int write_idx;
 };
 
+struct router_connection {
+    uint32_t vaddr;
+    uint64_t addr_port;
+    int timerfds;
+    int timerfdr;
+
+    uint8_t active;
+    uint8_t value;
+
+    UT_hash_handle hh;
+};
+
 struct router {
     uint32_t vaddr;
     uint32_t network_addr;
     uint32_t broadcast_addr;
     size_t subnet_size;
-    struct connection **routing_table;
+    struct router_connection **routing_table;
     pthread_rwlock_t routing_table_lock;
     int sockfd;
     struct router_buffer *recv_buffer;
+    struct router_buffer *send_buffer;
     int epoll_fd;
     struct epoll_event event, events[MAX_EVENTS];
     struct taskexecutor *peer_listener;
-    struct connection *peers;
+    struct router_connection *peers;
     pthread_mutex_t peers_lock;
 };
 
 static void init_router_buffer(struct router_buffer **);
-static struct connection *create_connection(uint32_t vaddr, uint32_t raddr,
-                                            uint32_t rport);
-static void set_timers(struct router *router, struct connection *con,
+static struct router_connection *
+create_connection(uint32_t vaddr, uint32_t raddr, uint32_t rport);
+static void set_timers(struct router *router, struct router_connection *con,
                        int send_tv, int recv_tv);
 static void *keep_alive_worker(void *arg);
 static void *recv_worker(void *arg);
 static void update_routing_table(struct router *router, uint32_t vaddr,
-                                 struct connection *con);
+                                 struct router_connection *con);
 
 struct router *router_create(uint32_t vaddr, uint32_t net_addr,
                              uint32_t broad_addr, int sockfd,
@@ -86,16 +95,17 @@ struct router *router_create(uint32_t vaddr, uint32_t net_addr,
     router->peer_listener = taskexecutor;
 
     init_router_buffer(&router->recv_buffer); // TODO
+    init_router_buffer(&router->send_buffer); // TODO
 
     router->subnet_size = broad_addr - net_addr - 1;
 
-    if ((router->routing_table = malloc(sizeof(struct connection *) *
+    if ((router->routing_table = malloc(sizeof(struct router_connection *) *
                                         (router->subnet_size + 1))) == NULL) {
         dprintf(STDERR_FILENO, "Router: Malloc Failed %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
     memset(router->routing_table, (uint64_t)NULL,
-           sizeof(struct connection *) * (router->subnet_size + 1));
+           sizeof(struct router_connection *) * (router->subnet_size + 1));
 
     pthread_rwlock_init(&router->routing_table_lock, NULL);
 
@@ -127,56 +137,56 @@ void router_destroy(struct router *router)
     // TODO
 }
 
-int router_add_connection(struct router *router, vln_connection_type ctype,
-                          uint32_t vaddr, uint32_t raddr, uint16_t rport,
-                          int isActive, int sendInit)
-{
-    struct connection *new_con = malloc(sizeof(struct connection));
-    new_con->con_type = ctype;
-    new_con->vaddr = vaddr;
-    CONNECTIONSADDR(new_con->addr_port, raddr);
-    CONNECTIONSPORT(new_con->addr_port, rport);
-    new_con->active = isActive;
-    new_con->timerfdr = timerfd_create(CLOCK_REALTIME, TFD_CLOEXEC);
-    new_con->timerfds = timerfd_create(CLOCK_REALTIME, TFD_CLOEXEC);
+// int router_add_connection(struct router *router, vln_connection_type ctype,
+//                           uint32_t vaddr, uint32_t raddr, uint16_t rport,
+//                           int isActive, int sendInit)
+// {
+//     struct router_connection *new_con =
+//         malloc(sizeof(struct router_connection));
+//     new_con->vaddr = vaddr;
+//     CONNECTIONSADDR(new_con->addr_port, raddr);
+//     CONNECTIONSPORT(new_con->addr_port, rport);
+//     new_con->active = isActive;
+//     new_con->timerfdr = timerfd_create(CLOCK_REALTIME, TFD_CLOEXEC);
+//     new_con->timerfds = timerfd_create(CLOCK_REALTIME, TFD_CLOEXEC);
 
-    router->event.events = EPOLLIN;
-    router->event.data.ptr = new_con;
-    epoll_ctl(router->epoll_fd, EPOLL_CTL_ADD, new_con->timerfds,
-              &router->event);
-    if (isActive == 1) {
-        // struct task_info *task_info = malloc(sizeof(struct task_info));
-        // task_info->args = prepear_update_packet(router, new_con->vaddr);
-        // task_info->operation = UPDATE;
-        // taskexecutor_add_task(router->send_manager, task_info);
+//     router->event.events = EPOLLIN;
+//     router->event.data.ptr = new_con;
+//     epoll_ctl(router->epoll_fd, EPOLL_CTL_ADD, new_con->timerfds,
+//               &router->event);
+//     if (isActive == 1) {
+//         // struct task_info *task_info = malloc(sizeof(struct task_info));
+//         // task_info->args = prepear_update_packet(router, new_con->vaddr);
+//         // task_info->operation = UPDATE;
+//         // taskexecutor_add_task(router->send_manager, task_info);
 
-        // task_info = malloc(sizeof(struct task_info));
-        // task_info->args = prepear_update_packet_2(router, new_con);
-        // task_info->operation = UPDATE;
-        // taskexecutor_add_task(router->send_manager, task_info);
-    }
+//         // task_info = malloc(sizeof(struct task_info));
+//         // task_info->args = prepear_update_packet_2(router, new_con);
+//         // task_info->operation = UPDATE;
+//         // taskexecutor_add_task(router->send_manager, task_info);
+//     }
 
-    pthread_mutex_lock(&router->peers_lock);
-    HASH_ADD_UINT64_T(router->peers, addr_port, new_con);
-    pthread_mutex_unlock(&router->peers_lock);
+//     pthread_mutex_lock(&router->peers_lock);
+//     HASH_ADD_UINT64_T(router->peers, addr_port, new_con);
+//     pthread_mutex_unlock(&router->peers_lock);
 
-    struct itimerspec iti;
-    memset(&iti, 0, sizeof(struct itimerspec));
-    iti.it_interval.tv_sec = 0;
-    iti.it_value.tv_sec = 1;
-    timerfd_settime(new_con->timerfds, 0, &iti, NULL);
+//     struct itimerspec iti;
+//     memset(&iti, 0, sizeof(struct itimerspec));
+//     iti.it_interval.tv_sec = 0;
+//     iti.it_value.tv_sec = 1;
+//     timerfd_settime(new_con->timerfds, 0, &iti, NULL);
 
-    char ip[INET_ADDRSTRLEN]; //
-    inet_ntop(AF_INET, &vaddr, &ip, INET_ADDRSTRLEN); //
-    printf("Added connection to IP: %s %u %d\n", ip,
-           CONNECTIONGADDR(new_con->addr_port),
-           CONNECTIONGPORT(new_con->addr_port));
+//     char ip[INET_ADDRSTRLEN]; //
+//     inet_ntop(AF_INET, &vaddr, &ip, INET_ADDRSTRLEN); //
+//     printf("Added connection to IP: %s %u %d\n", ip,
+//            CONNECTIONGADDR(new_con->addr_port),
+//            CONNECTIONGPORT(new_con->addr_port));
 
-    // if (sendInit == 1)
-    //     send_init(router, new_con);
+//     // if (sendInit == 1)
+//     //     send_init(router, new_con);
 
-    return 0;
-}
+//     return 0;
+// }
 
 int router_remove_connection(uint32_t vaddr)
 {
@@ -311,7 +321,7 @@ void router_send_init(struct router *router, uint32_t raddr, uint32_t rport)
     saddr.sin_port = ntohs(rport);
     saddr.sin_addr.s_addr = ntohl(raddr);
 
-    struct connection *new_con =
+    struct router_connection *new_con =
         create_connection(router->network_addr, raddr, rport);
     printf("Server con address %lu\n", new_con);
     new_con->active = 1;
@@ -342,7 +352,8 @@ void router_update_routing_table(struct router *router, uint32_t svaddr,
     pthread_rwlock_unlock(&router->routing_table_lock);
 }
 
-void *prepear_update_packet_2(struct router *router, struct connection *new_con)
+void *prepear_update_packet_2(struct router *router,
+                              struct router_connection *new_con)
 {
     uint8_t *spacket =
         malloc(sizeof(struct vln_packet_header) + 2 + sizeof(uint32_t) +
@@ -379,9 +390,10 @@ void *prepear_update_packet(struct router *router, uint32_t dvaddr)
     struct vln_update_payload *update =
         PACKET_PAYLOAD(spacket) + 2 * sizeof(uint32_t);
 
-    struct connection *s;
+    struct router_connection *s;
     uint32_t real_count = 0;
-    for (s = router->peers; s != NULL; s = (struct connection *)(s->hh.next)) {
+    for (s = router->peers; s != NULL;
+         s = (struct router_connection *)(s->hh.next)) {
         if (s->active == 1) {
             update->raddr = htonl(CONNECTIONGADDR(s->addr_port));
             update->rport = htonl(CONNECTIONGPORT(s->addr_port));
@@ -399,15 +411,15 @@ void *prepear_update_packet(struct router *router, uint32_t dvaddr)
 static void *recv_worker(void *arg)
 {
     struct router *router = (struct router *)arg;
-
     socklen_t slen = sizeof(struct sockaddr_in);
     struct sockaddr_in raddr;
-
-    memset(&raddr, 0, sizeof(struct sockaddr_in)); // arafers shveba ideashi.
+    memset(&raddr, 0, sizeof(struct sockaddr_in));
 
     struct router_buffer_slot *slot;
     struct vln_data_packet_header *header;
     struct vln_data_init_payload *payload;
+    void *packeth;
+    void *packetd;
     while (1) {
         sem_wait(&router->recv_buffer->free_slots);
         slot = &router->recv_buffer->slots[router->recv_buffer->write_idx];
@@ -424,8 +436,8 @@ static void *recv_worker(void *arg)
 
         if (header->type == DATA) {
             printf("Data Recvd!!!\n");
-            void *packeth = ((struct vln_data_packet_header *)slot->buffer);
-            void *packetd = ((struct vln_data_packet_header *)slot->buffer) + 1;
+            packeth = ((struct vln_data_packet_header *)slot->buffer);
+            packetd = ((struct vln_data_packet_header *)slot->buffer) + 1;
 
             uint32_t vaddr = ntohl(((struct iphdr *)packetd)->daddr);
             if (vaddr == router->vaddr) {
@@ -452,7 +464,7 @@ static void *recv_worker(void *arg)
             printf("Router Rport %d SET FOR HOST %u\n", ntohs(raddr.sin_port),
                    ntohl(payload->vaddr));
 
-            struct connection *new_con = create_connection(
+            struct router_connection *new_con = create_connection(
                 ntohl(payload->vaddr), ntohl(raddr.sin_addr.s_addr),
                 ntohs(raddr.sin_port));
             new_con->active = 1;
@@ -468,18 +480,6 @@ static void *recv_worker(void *arg)
             task->operation = PEERCONNECTED;
             task->args = act;
             taskexecutor_add_task(router->peer_listener, task);
-
-            // router_add_connection(router, 0, ntohl(payload->vaddr),
-            //                       ntohl(raddr.sin_addr.s_addr),
-            //                       ntohs(raddr.sin_port), 1, 0);
-            // uint64_t key = 0;
-            // CONNECTIONSADDR(key, ntohl(raddr.sin_addr.s_addr));
-            // CONNECTIONSPORT(key, ntohs(raddr.sin_port));
-            // struct connection *temp_con;
-            // pthread_mutex_lock(&router->peers_lock);
-            // HASH_FIND_UINT64_T(router->peers, &key, temp_con);
-            // pthread_mutex_unlock(&router->peers_lock);
-            // update_routing_table(router, temp_con->vaddr, temp_con);
 
             sem_post(&router->recv_buffer->free_slots);
             continue;
@@ -505,9 +505,9 @@ static void *keep_alive_worker(void *arg)
     while (1) {
         int event_count =
             epoll_wait(router->epoll_fd, router->events, MAX_EVENTS, 30000);
-        struct connection *con;
+        struct router_connection *con;
         for (int i = 0; i < event_count; i++) {
-            con = (struct connection *)router->events[i].data.ptr;
+            con = (struct router_connection *)router->events[i].data.ptr;
             uint64_t timerexps;
             read(con->timerfds, &timerexps, sizeof(uint64_t));
             printf("Timer '%lu'\n", timerexps);
@@ -540,10 +540,11 @@ static void init_router_buffer(struct router_buffer **buff)
     (*buff)->read_idx = 0;
 }
 
-static struct connection *create_connection(uint32_t vaddr, uint32_t raddr,
-                                            uint32_t rport)
+static struct router_connection *
+create_connection(uint32_t vaddr, uint32_t raddr, uint32_t rport)
 {
-    struct connection *new_con = malloc(sizeof(struct connection));
+    struct router_connection *new_con =
+        malloc(sizeof(struct router_connection));
     // new_con->con_type = ctype;
     new_con->vaddr = vaddr;
     CONNECTIONSADDR(new_con->addr_port, raddr);
@@ -555,7 +556,7 @@ static struct connection *create_connection(uint32_t vaddr, uint32_t raddr,
     return new_con;
 }
 
-static void set_timers(struct router *router, struct connection *con,
+static void set_timers(struct router *router, struct router_connection *con,
                        int send_tv, int recv_tv)
 {
     router->event.events = EPOLLIN;
@@ -571,9 +572,9 @@ static void set_timers(struct router *router, struct connection *con,
 }
 
 static void update_routing_table(struct router *router, uint32_t vaddr,
-                                 struct connection *con)
+                                 struct router_connection *con)
 {
-    struct connection *cur_con;
+    struct router_connection *cur_con;
     int key = vaddr - router->network_addr;
     pthread_rwlock_wrlock(&router->routing_table_lock);
     cur_con = router->routing_table[key];
