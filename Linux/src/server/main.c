@@ -266,7 +266,7 @@ void *manager_worker(void *arg)
         struct server_connection *elem;
         for (elem = curr_net->connections; elem != NULL;
              elem = (struct server_connection *)(elem->hh.next)) {
-            if (send_wrap(scon->tcpwrapper, (void *)spacket,
+            if (send_wrap(elem->tcpwrapper, (void *)spacket,
                           sizeof(struct vln_packet_header) +
                               sizeof(struct vln_updatedis_payload)) != 0) {
                 printf("UPDATEDIS Send Failed\n");
