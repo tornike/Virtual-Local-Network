@@ -31,8 +31,10 @@ void router_destroy(struct router *);
 
 int router_transmit(struct router *, void *packet, size_t size);
 
-int router_receive(struct router *, void *buffer,
-                   size_t size); /* size must be big enough */
+size_t router_receive(struct router *, void *buffer,
+                      size_t size); /* size must be big enough */
+
+size_t router_send(struct router *router, void *buffer, size_t size);
 
 void router_get_raddr(struct router *, uint32_t *raddr, uint16_t *rport);
 

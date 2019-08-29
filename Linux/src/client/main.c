@@ -180,14 +180,14 @@ void *recv_thread(void *arg)
     while (1) {
         int size = router_receive(router, buff, BUFFERSIZE);
 
-        char saddr[INET_ADDRSTRLEN];
-        char daddr[INET_ADDRSTRLEN];
-        inet_ntop(AF_INET, &((struct iphdr *)buff)->saddr, saddr,
-                  INET_ADDRSTRLEN);
-        inet_ntop(AF_INET, &((struct iphdr *)buff)->daddr, daddr,
-                  INET_ADDRSTRLEN);
+        // char saddr[INET_ADDRSTRLEN];
+        // char daddr[INET_ADDRSTRLEN];
+        // inet_ntop(AF_INET, &((struct iphdr *)buff)->saddr, saddr,
+        //           INET_ADDRSTRLEN);
+        // inet_ntop(AF_INET, &((struct iphdr *)buff)->daddr, daddr,
+        //           INET_ADDRSTRLEN);
 
-        printf("Received from V %s %s %d bytes\n", saddr, daddr, size);
+        // printf("Received from V %s %s %d bytes\n", saddr, daddr, size);
 
         write(_tunfd, buff, size);
     }
@@ -200,9 +200,8 @@ void *send_thread(void *arg)
     // TODO
     char buff[BUFFERSIZE];
     while (1) {
-        int size = read(_tunfd, buff + sizeof(struct vln_data_packet_header),
-                        BUFFERSIZE - sizeof(struct vln_data_packet_header));
-        router_transmit(router, buff, size);
+        int size = read(_tunfd, buff, BUFFERSIZE);
+        router_send(router, buff, size);
     }
 
     return NULL;
