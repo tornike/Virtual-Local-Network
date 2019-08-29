@@ -366,6 +366,16 @@ void manager_worker()
 
             break;
         }
+        case UPDATEDIS: {
+            printf("UPDATEDIS Received\n");
+            struct vln_updatedis_payload rpayload;
+            if (recv_wrap(tcpwrapper, (void *)&rpayload,
+                          sizeof(struct vln_updatedis_payload)) != 0) {
+                // TODO
+            }
+            router_remove_connection(router, ntohl(rpayload.vaddr));
+            break;
+        }
         default:
             printf("ERROR: Unknown Packet Type\n");
             break;

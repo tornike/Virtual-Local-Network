@@ -17,6 +17,7 @@
 #define RETRANSMIT 12
 #define ROOTNODE 13
 #define UPDATE 14
+#define UPDATEDIS 15
 
 /* Flags */
 #define VLN_VIRTUALADDR 128
@@ -36,6 +37,10 @@ struct vln_update_payload {
     uint32_t vaddr;
     uint32_t raddr;
     uint16_t rport;
+} __attribute__((packed));
+
+struct vln_updatedis_payload {
+    uint32_t vaddr;
 } __attribute__((packed));
 
 struct vln_initr_payload {

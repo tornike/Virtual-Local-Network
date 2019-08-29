@@ -27,7 +27,7 @@ void router_destroy(struct router *);
 //                           uint32_t vaddr, uint32_t raddr, uint16_t rport,
 //                           int isActive, int sendInit);
 
-// int router_remove_connection(uint32_t vaddr);
+void router_remove_connection(struct router *router, uint32_t vaddr);
 
 int router_transmit(struct router *, void *packet, size_t size);
 

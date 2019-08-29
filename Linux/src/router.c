@@ -76,6 +76,7 @@ struct router {
 static void init_router_buffer(struct router_buffer **);
 static struct router_connection *
 create_connection(uint32_t vaddr, uint32_t raddr, uint32_t rport);
+void destroy_connection(struct router_connection *con);
 static void set_timers(struct router *router, struct router_connection *con,
                        int send_tv, int recv_tv);
 static void *keep_alive_worker(void *arg);
@@ -190,18 +191,19 @@ void router_destroy(struct router *router)
 //     return 0;
 // }
 
-int router_remove_connection(uint32_t vaddr)
+void router_remove_connection(struct router *router, uint32_t vaddr)
 {
     // TODO
-
-    // uint32_t bigen_vaddr = htobe32(vaddr);
-    // pthread_rwlock_wrlock(&connections_lock);
-    // // maybe timer destroy
-    // // and removing from poll
-    // free(connections[bigen_vaddr % 10]);
-    // connections[bigen_vaddr % 10] = NULL;
-    // pthread_rwlock_unlock(&connections_lock);
-    return 0;
+    struct router_connection *con;
+    int key = vaddr - router->network_addr;
+    pthread_rwlock_wrlock(&router->routing_table_lock);
+    con = router->routing_table[key]; // check for vaddr == 0 which is server
+    router->routing_table[key] = NULL;
+    pthread_rwlock_unlock(&router->routing_table_lock);
+    if (con != NULL) {
+        printf("Waishalaaa\n");
+        destroy_connection(con);
+    }
 }
 
 int router_transmit(struct router *router, void *packet, size_t size)
@@ -664,6 +666,13 @@ create_connection(uint32_t vaddr, uint32_t raddr, uint32_t rport)
     new_con->timerfds = timerfd_create(CLOCK_REALTIME, TFD_CLOEXEC);
 
     return new_con;
+}
+
+void destroy_connection(struct router_connection *con)
+{
+    close(con->timerfds);
+    close(con->timerfdr);
+    free(con);
 }
 
 static void set_timers(struct router *router, struct router_connection *con,

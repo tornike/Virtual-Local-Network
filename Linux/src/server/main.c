@@ -43,7 +43,7 @@ struct vln_network {
     uint8_t network_bits;
 
     struct server_connection *connections;
-    pthread_mutex_t connections_lock;
+    pthread_mutex_t connections_lock; // rwlock should be better.
 
     struct router *router;
     uint32_t router_addr;
@@ -53,7 +53,6 @@ struct vln_network {
 };
 
 //===========GLOBALS===========
-uint32_t _serverip;
 uint32_t _rserverip;
 struct vln_network *_networks; // must be hash
 //===========GLOBALS===========
@@ -67,67 +66,67 @@ void router_listener(void *args, struct task_info *tinfo)
 
         struct server_connection *curr_con;
         HASH_FIND_INT(net->connections, &act->vaddr, curr_con);
-        curr_con->udp_addr = act->raddr; // Lock needed?
-        curr_con->udp_port = act->rport;
+        if (curr_con != NULL) {
+            printf("Con NUll in router listener\n");
+            curr_con->udp_addr = act->raddr; // Lock needed?
+            curr_con->udp_port = act->rport;
 
-        uint8_t spacket_to_curr[sizeof(struct vln_packet_header) +
-                                sizeof(struct vln_update_payload)];
-        struct vln_packet_header *stcheader =
-            (struct vln_packet_header *)spacket_to_curr;
-        struct vln_update_payload *stcpayload =
-            (struct vln_update_payload *)PACKET_PAYLOAD(spacket_to_curr);
-        stcheader->type = UPDATE;
-        stcheader->payload_length = htonl(sizeof(struct vln_update_payload));
-        stcpayload->svaddr = htonl(net->address);
-        stcpayload->dvaddr = htonl(curr_con->vaddr);
+            uint8_t spacket_to_curr[sizeof(struct vln_packet_header) +
+                                    sizeof(struct vln_update_payload)];
+            struct vln_packet_header *stcheader =
+                (struct vln_packet_header *)spacket_to_curr;
+            struct vln_update_payload *stcpayload =
+                (struct vln_update_payload *)PACKET_PAYLOAD(spacket_to_curr);
+            stcheader->type = UPDATE;
+            stcheader->payload_length =
+                htonl(sizeof(struct vln_update_payload));
+            stcpayload->svaddr = htonl(net->address);
+            stcpayload->dvaddr = htonl(curr_con->vaddr);
 
-        uint8_t spacket_to_others[sizeof(struct vln_packet_header) +
-                                  sizeof(struct vln_update_payload)];
-        struct vln_packet_header *stoheader =
-            (struct vln_packet_header *)spacket_to_others;
-        struct vln_update_payload *stopayload =
-            (struct vln_update_payload *)PACKET_PAYLOAD(spacket_to_others);
-        stoheader->type = UPDATE;
-        stoheader->payload_length = htonl(sizeof(struct vln_update_payload));
-        stopayload->svaddr = htonl(net->address);
-        stopayload->vaddr = htonl(act->vaddr);
-        stopayload->raddr = htonl(act->raddr);
-        stopayload->rport = htons(act->rport);
+            uint8_t spacket_to_others[sizeof(struct vln_packet_header) +
+                                      sizeof(struct vln_update_payload)];
+            struct vln_packet_header *stoheader =
+                (struct vln_packet_header *)spacket_to_others;
+            struct vln_update_payload *stopayload =
+                (struct vln_update_payload *)PACKET_PAYLOAD(spacket_to_others);
+            stoheader->type = UPDATE;
+            stoheader->payload_length =
+                htonl(sizeof(struct vln_update_payload));
+            stopayload->svaddr = htonl(net->address);
+            stopayload->vaddr = htonl(act->vaddr);
+            stopayload->raddr = htonl(act->raddr);
+            stopayload->rport = htons(act->rport);
 
-        struct server_connection *elem;
-        for (elem = net->connections; elem != NULL;
-             elem = (struct server_connection *)(elem->hh.next)) {
-            if (elem->udp_addr != 0 && elem->udp_port != 0 &&
-                elem != curr_con) {
+            struct server_connection *elem;
+            for (elem = net->connections; elem != NULL;
+                 elem = (struct server_connection *)(elem->hh.next)) {
+                if (elem->udp_addr != 0 && elem->udp_port != 0 &&
+                    elem != curr_con) {
 
-                stopayload->dvaddr = htonl(elem->vaddr);
-                if (send_wrap(elem->tcpwrapper, (void *)spacket_to_others,
-                              sizeof(struct vln_packet_header) +
-                                  sizeof(struct vln_update_payload)) != 0) {
-                    printf("Update Send Failed\n");
-                } else {
-                    printf("Update Sent\n");
-                }
+                    stopayload->dvaddr = htonl(elem->vaddr);
+                    if (send_wrap(elem->tcpwrapper, (void *)spacket_to_others,
+                                  sizeof(struct vln_packet_header) +
+                                      sizeof(struct vln_update_payload)) != 0) {
+                        printf("Update Send Failed\n");
+                    } else {
+                        printf("Update Sent\n");
+                    }
 
-                stcpayload->vaddr = htonl(elem->vaddr);
-                stcpayload->raddr = htonl(elem->udp_addr);
-                stcpayload->rport = htons(elem->udp_port);
-                if (send_wrap(curr_con->tcpwrapper, (void *)spacket_to_curr,
-                              sizeof(struct vln_packet_header) +
-                                  sizeof(struct vln_update_payload)) != 0) {
-                    printf("Update Send Failed\n");
-                } else {
-                    printf("Update Sent\n");
+                    stcpayload->vaddr = htonl(elem->vaddr);
+                    stcpayload->raddr = htonl(elem->udp_addr);
+                    stcpayload->rport = htons(elem->udp_port);
+                    if (send_wrap(curr_con->tcpwrapper, (void *)spacket_to_curr,
+                                  sizeof(struct vln_packet_header) +
+                                      sizeof(struct vln_update_payload)) != 0) {
+                        printf("Update Send Failed\n");
+                    } else {
+                        printf("Update Sent\n");
+                    }
                 }
             }
         }
-
         pthread_mutex_unlock(&net->connections_lock);
-
-        // send update to all server_connections where raddr and rport != 0
-        // send all server_connections to new connection
         free(act);
-        free(tinfo);
     } else {
         printf("Unknown router_listener operation\n");
     }
@@ -145,99 +144,6 @@ uint32_t get_available_address(struct vln_network *net)
     return 0;
 }
 
-// void manager_sender_handler(void *args, struct task_info *task_info)
-// {
-//     struct tcpwrapper *tcpwrapper = (struct tcpwrapper *)args;
-
-//     struct vln_packet_header *spacket;
-//     switch (task_info->operation) {
-//     case INIT: {
-//         printf("Send INIT\n");
-//         spacket = (struct vln_packet_header *)task_info->args;
-//         if (send_wrap(tcpwrapper, (void *)spacket,
-//                       sizeof(struct vln_packet_header) +
-//                           ntohl(spacket->payload_length)) != 0) {
-//             printf("BOLOMDE VER GAIGZAVNA\n");
-//         } else {
-//             printf("INITR Sent\n");
-//         }
-//         free(spacket);
-//         break;
-//     }
-//     case ROOTNODES: {
-//         printf("Send Root INIT\n");
-//         spacket = (struct vln_packet_header *)task_info->args;
-//         if (send_wrap(tcpwrapper, (void *)spacket,
-//                       sizeof(struct vln_packet_header) +
-//                           ntohl(spacket->payload_length)) != 0) {
-//             printf("BOLOMDE VER GAIGZAVNA\n");
-//         } else {
-//             printf("INITR Sent\n");
-//         }
-//         free(spacket);
-//         break;
-//     }
-//     case UPDATE: {
-//         printf("Send UPDATE\n");
-//         spacket = (struct vln_packet_header *)task_info->args;
-
-//         struct vln_update_payload *update =
-//             (struct vln_update_payload *)(PACKET_PAYLOAD(spacket) +
-//                                           2 * sizeof(uint32_t));
-//         uint32_t svaddr = ntohl(*(uint32_t *)(PACKET_PAYLOAD(spacket)));
-//         uint32_t dvaddr =
-//             ntohl(*(uint32_t *)(PACKET_PAYLOAD(spacket) + sizeof(uint32_t)));
-
-//         struct server_connection *pcon;
-
-//         if (dvaddr == 0) {
-//             printf("Send UPDATE  0\n");
-//             pthread_mutex_lock(&_connectionsm);
-//             for (pcon = _server_connections; pcon != NULL;
-//                  pcon = (struct server_connection *)(pcon->hh.next)) {
-//                 if (!(pcon->vaddr == svaddr ||
-//                       pcon->vaddr == ntohl(update->vaddr))) {
-//                     if (send_wrap(pcon->tcpwrapper, (void *)spacket,
-//                                   sizeof(struct vln_packet_header) +
-//                                       ntohl(spacket->payload_length)) != 0) {
-//                         printf("BOLOMDE VER GAIGZAVNA\n");
-//                     } else {
-//                         printf("INITR Sent\n");
-//                     }
-//                 }
-//             }
-//             pthread_mutex_unlock(&_connectionsm);
-
-//         } else {
-//             printf("Send UPDATE  1\n");
-//             pthread_mutex_lock(&_connectionsm);
-//             HASH_FIND_INT(_server_connections, &dvaddr, pcon);
-
-//             // TODO if pcon is null
-//             if (pcon != NULL) {
-
-//                 if (send_wrap(pcon->tcpwrapper, (void *)task_info->args,
-//                               sizeof(struct vln_packet_header) +
-//                                   ntohl(spacket->payload_length)) != 0) {
-//                     printf("BOLOMDE VER GAIGZAVNA\n");
-//                 } else {
-//                     printf("INITR Sent\n");
-//                 }
-//             }
-//             pthread_mutex_unlock(&_connectionsm);
-//         }
-//         free(spacket);
-
-//         break;
-//     }
-
-//     default:
-//         printf("ERROR: Unknown Packet Type\n");
-//         break;
-//     }
-// }
-
-// TODO: error handling.
 void *manager_worker(void *arg)
 {
     int sockfd = (int)arg;
@@ -268,7 +174,7 @@ void *manager_worker(void *arg)
     HASH_ADD_INT(curr_net->connections, vaddr, scon);
     pthread_mutex_unlock(&curr_net->connections_lock);
 
-    //==============SEND INTITR===============
+    //==============SEND INITR===============
     do {
         uint8_t spacket[sizeof(struct vln_packet_header) +
                         sizeof(struct vln_initr_payload)];
@@ -287,7 +193,7 @@ void *manager_worker(void *arg)
             printf("INITR Sent\n");
         }
     } while (0);
-    //========================================
+    //==========================================
 
     //==============SEND ROOTNODE===============
     do {
@@ -308,7 +214,7 @@ void *manager_worker(void *arg)
             printf("ROOTNODE Sent\n");
         }
     } while (0);
-    //========================================
+    //=========================================
 
     struct vln_packet_header rpacket;
     while (1) {
@@ -317,14 +223,7 @@ void *manager_worker(void *arg)
             printf("Connection Lost\n");
             break;
         }
-        switch (rpacket.type) {
-        case INIT: {
-            assert(rpacket.payload_length == 0);
-            printf("INIT RECVED: ar unda miego\n");
-
-            break;
-        }
-        case UPDATE: {
+        if (rpacket.type == UPDATE) {
             printf("UPDATE: ar unda miego\n");
             uint8_t rpayload[ntohl(rpacket.payload_length)];
             if (recv_wrap(scon->tcpwrapper, (void *)rpayload,
@@ -340,15 +239,47 @@ void *manager_worker(void *arg)
             // task_info->operation = UPDATE;
 
             // taskexecutor_add_task(taskexecutor, task_info);
+        } else {
+            printf("ERROR: Unknown Packet Type\n");
             break;
         }
-        default:
-            printf("ERROR: Unknown Packet Type\n");
-            return NULL;
-        }
     }
-    tcpwrapper_destroy(scon->tcpwrapper);
 
+    pthread_mutex_lock(&curr_net->connections_lock);
+    HASH_DEL(curr_net->connections, scon);
+    pthread_mutex_unlock(&curr_net->connections_lock);
+
+    router_remove_connection(curr_net->router, scon->vaddr);
+
+    //==============SEND PeerDisconnected===============
+    do {
+        uint8_t spacket[sizeof(struct vln_packet_header) +
+                        sizeof(struct vln_updatedis_payload)];
+        struct vln_packet_header *sheader = (struct vln_packet_header *)spacket;
+        struct vln_updatedis_payload *spayload =
+            (struct vln_updatedis_payload *)PACKET_PAYLOAD(spacket);
+        sheader->type = UPDATEDIS;
+        sheader->payload_length = htonl(sizeof(struct vln_updatedis_payload));
+        spayload->vaddr = htonl(scon->vaddr);
+
+        pthread_mutex_lock(&curr_net->connections_lock);
+        struct server_connection *elem;
+        for (elem = curr_net->connections; elem != NULL;
+             elem = (struct server_connection *)(elem->hh.next)) {
+            if (send_wrap(scon->tcpwrapper, (void *)spacket,
+                          sizeof(struct vln_packet_header) +
+                              sizeof(struct vln_updatedis_payload)) != 0) {
+                printf("UPDATEDIS Send Failed\n");
+            } else {
+                printf("UPDATEDIS Sent\n");
+            }
+        }
+        pthread_mutex_unlock(&curr_net->connections_lock);
+    } while (0);
+    //==========================================
+
+    tcpwrapper_destroy(scon->tcpwrapper);
+    free(scon);
     return NULL;
 }
 
@@ -432,7 +363,6 @@ int main(int argc, char **argv)
 
     struct taskexecutor *rlistener =
         taskexecutor_create((Handler)&router_listener, new_net);
-
     taskexecutor_start(rlistener);
 
     new_net->router_addr = _rserverip;

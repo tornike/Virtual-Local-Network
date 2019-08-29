@@ -1,3 +1,4 @@
+#include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,6 +13,8 @@ struct tcpwrapper {
     int sockfd;
     size_t start_point;
     size_t end_point;
+
+    pthread_mutex_t send_lock;
 };
 
 struct tcpwrapper *tcpwrapper_create(int sockfd, size_t buffer_size)
@@ -22,11 +25,13 @@ struct tcpwrapper *tcpwrapper_create(int sockfd, size_t buffer_size)
     wrapper->sockfd = sockfd;
     wrapper->start_point = 0;
     wrapper->end_point = 0;
+    pthread_mutex_init(&wrapper->send_lock, NULL);
     return wrapper;
 }
 
 void tcpwrapper_destroy(struct tcpwrapper *wrapper)
 {
+    pthread_mutex_destroy(&wrapper->send_lock);
     free(wrapper->buffer);
     free(wrapper);
 }
@@ -58,12 +63,15 @@ int recv_wrap(struct tcpwrapper *wrapper, void *buffer, size_t size)
 
 int send_wrap(struct tcpwrapper *wrapper, void *buffer, size_t size)
 {
+    int res = 0;
+    pthread_mutex_lock(&wrapper->send_lock);
     while (size != 0) {
         size_t sent_tmp = send(wrapper->sockfd, buffer, size, 0);
         if (sent_tmp == -1)
-            return 1;
+            res = 1;
         size -= sent_tmp;
         buffer = (uint8_t *)buffer + sent_tmp;
     }
-    return 0;
+    pthread_mutex_unlock(&wrapper->send_lock);
+    return res;
 }
