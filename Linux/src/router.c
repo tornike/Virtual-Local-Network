@@ -21,7 +21,7 @@
 #include "lib/taskexecutor.h"
 #include "lib/uthash.h"
 
-#define MAX_PACKETS 15
+#define MAX_PACKETS 100
 #define SLOT_SIZE 4096
 #define MAX_EVENTS 10
 
@@ -562,6 +562,7 @@ static void *send_worker(void *arg)
             pthread_rwlock_rdlock(&router->routing_table_lock);
             if (router->routing_table[key] == NULL) {
                 printf("CONNECTION IS NULL!!!\n");
+                pthread_rwlock_unlock(&router->routing_table_lock);
             } else {
                 // need this??
                 ((struct vln_data_packet_header *)packeth)->type = DATA;
