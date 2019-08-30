@@ -312,7 +312,7 @@ void recv_connections(int port)
 
 int init(char *network_addr, char *network_bits)
 {
-    char *rip = "34.65.70.129";
+    char *rip = "34.65.27.69";
     // TODO
     inet_pton(AF_INET, rip, &_rserverip);
     _rserverip = ntohl(_rserverip);
@@ -367,9 +367,9 @@ int main(int argc, char **argv)
 
     new_net->router_addr = _rserverip;
     new_net->router_port = ntohs(udp_addr.sin_port);
-    new_net->router =
-        router_create(new_net->address, new_net->address,
-                      new_net->broadcast_address, router_sockfd, rlistener);
+    new_net->router = router_create(new_net->address, new_net->address,
+                                    new_net->broadcast_address, router_sockfd,
+                                    rlistener, NULL);
     //=================Create Network================
 
     _networks = new_net;

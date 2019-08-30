@@ -26,7 +26,7 @@
 #define BUFFERSIZE 4096
 
 //===========GLOBALS===========
-char *_server_addr = "34.65.70.129"; // Must be changed.
+char *_server_addr = "34.65.27.69"; // Must be changed.
 int _server_port_temp = 33507; // Must be changed.
 int _tunfd;
 //===========GLOBALS===========
@@ -194,14 +194,21 @@ void *recv_thread(void *arg)
     return NULL;
 }
 
+int writetun(void *packet, size_t size)
+{
+    return write(_tunfd, packet, size);
+}
+
 void *send_thread(void *arg)
 {
     struct router *router = (struct router *)arg;
     // TODO
     char buff[BUFFERSIZE];
     while (1) {
-        int size = read(_tunfd, buff, BUFFERSIZE);
-        router_send(router, buff, size);
+        int size = read(_tunfd, buff + sizeof(struct vln_data_packet_header),
+                        BUFFERSIZE - sizeof(struct vln_data_packet_header));
+        printf("WTF\n");
+        router_transmit(router, buff, size);
     }
 
     return NULL;
@@ -318,14 +325,18 @@ void manager_worker()
             }
 
             int router_sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-            router = router_create(
-                ntohl(rpayload.vaddr),
-                ntohl(rpayload.vaddr) & ntohl(rpayload.maskaddr),
-                ntohl(rpayload.broadaddr), router_sockfd, rlistener);
+            router =
+                router_create(ntohl(rpayload.vaddr),
+                              ntohl(rpayload.vaddr) & ntohl(rpayload.maskaddr),
+                              ntohl(rpayload.broadaddr), router_sockfd,
+                              rlistener, (TunHandler)&writetun);
 
-            pthread_t rt, st;
+            pthread_t rt, st1, st2, st3, st4;
             pthread_create(&rt, NULL, recv_thread, (void *)router);
-            pthread_create(&st, NULL, send_thread, (void *)router);
+            pthread_create(&st1, NULL, send_thread, (void *)router);
+            pthread_create(&st2, NULL, send_thread, (void *)router);
+            pthread_create(&st3, NULL, send_thread, (void *)router);
+            pthread_create(&st4, NULL, send_thread, (void *)router);
 
             break;
         }
