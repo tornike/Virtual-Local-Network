@@ -9,6 +9,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <unistd.h>
 
 #include "../lib/protocol.h"
 #include "../lib/taskexecutor.h"
@@ -29,6 +30,7 @@ struct server_connection {
     uint32_t vaddr;
     uint32_t udp_addr;
     uint32_t udp_port;
+    int sockfd;
     struct tcpwrapper *tcpwrapper;
     /*
         Maybe timers...
@@ -67,7 +69,6 @@ void router_listener(void *args, struct task_info *tinfo)
         struct server_connection *curr_con;
         HASH_FIND_INT(net->connections, &act->vaddr, curr_con);
         if (curr_con != NULL) {
-            printf("Con NUll in router listener\n");
             curr_con->udp_addr = act->raddr; // Lock needed?
             curr_con->udp_port = act->rport;
 
@@ -124,6 +125,19 @@ void router_listener(void *args, struct task_info *tinfo)
                     }
                 }
             }
+        } else {
+            printf("Con NUll in router listener\n");
+        }
+        pthread_mutex_unlock(&net->connections_lock);
+        free(act);
+    } else if (tinfo->operation == PEERDISCONNECTED) {
+        struct router_action *act = (struct router_action *)tinfo->args;
+        pthread_mutex_lock(&net->connections_lock);
+
+        struct server_connection *curr_con;
+        HASH_FIND_INT(net->connections, &act->vaddr, curr_con);
+        if (curr_con != NULL) {
+            shutdown(curr_con->sockfd, SHUT_RDWR);
         }
         pthread_mutex_unlock(&net->connections_lock);
         free(act);
@@ -167,6 +181,7 @@ void *manager_worker(void *arg)
 
     struct vln_network *curr_net = _networks; // find authorized network;
     struct server_connection *scon = malloc(sizeof(struct server_connection));
+    scon->sockfd = sockfd;
     scon->tcpwrapper = tcpwrapper;
 
     pthread_mutex_lock(&curr_net->connections_lock);
@@ -249,6 +264,7 @@ void *manager_worker(void *arg)
     HASH_DEL(curr_net->connections, scon);
     pthread_mutex_unlock(&curr_net->connections_lock);
 
+    printf("removing connection\n");
     router_remove_connection(curr_net->router, scon->vaddr);
 
     //==============SEND PeerDisconnected===============
@@ -367,9 +383,9 @@ int main(int argc, char **argv)
 
     new_net->router_addr = _rserverip;
     new_net->router_port = ntohs(udp_addr.sin_port);
-    new_net->router = router_create(new_net->address, new_net->address,
-                                    new_net->broadcast_address, router_sockfd,
-                                    rlistener, NULL);
+    new_net->router =
+        router_create(new_net->address, new_net->address,
+                      new_net->broadcast_address, router_sockfd, rlistener);
     //=================Create Network================
 
     _networks = new_net;

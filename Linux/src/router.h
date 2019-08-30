@@ -9,8 +9,6 @@
 #define PEERCONNECTED 1
 #define PEERDISCONNECTED 2
 
-typedef int (*TunHandler)(void *packet, size_t size);
-
 struct router_action {
     uint32_t vaddr;
     uint32_t raddr;
@@ -21,8 +19,7 @@ struct router;
 
 struct router *router_create(uint32_t vaddr, uint32_t net_addr,
                              uint32_t broad_addr, int sockfd,
-                             struct taskexecutor *taskexecutor,
-                             TunHandler tunWriter);
+                             struct taskexecutor *taskexecutor);
 
 void router_destroy(struct router *);
 

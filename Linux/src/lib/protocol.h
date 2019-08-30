@@ -87,7 +87,11 @@ struct vln_data_packet_header {
 } __attribute__((packed));
 
 struct vln_data_init_payload {
-    uint32_t vaddr; /* vinc inits gzavnis */
+    uint32_t vaddr; /* Addr of init sender */
+} __attribute__((packed));
+
+struct vln_data_keepalive_payload {
+    uint32_t vaddr; /* Addr of keepalive sender */
 } __attribute__((packed));
 
 #define PACKET_PAYLOAD(packet)                                                 \

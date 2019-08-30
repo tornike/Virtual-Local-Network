@@ -43,9 +43,9 @@ int recv_wrap(struct tcpwrapper *wrapper, void *buffer, size_t size)
         available_bytes = wrapper->end_point - wrapper->start_point;
 
         if (available_bytes == 0) {
-            size_t recv_tmp =
+            ssize_t recv_tmp =
                 recv(wrapper->sockfd, wrapper->buffer, wrapper->buffer_size, 0);
-            if (recv_tmp == 0)
+            if (recv_tmp <= 0)
                 return 1;
             wrapper->start_point = 0;
             wrapper->end_point = recv_tmp;
@@ -66,7 +66,7 @@ int send_wrap(struct tcpwrapper *wrapper, void *buffer, size_t size)
     int res = 0;
     pthread_mutex_lock(&wrapper->send_lock);
     while (size != 0) {
-        size_t sent_tmp = send(wrapper->sockfd, buffer, size, 0);
+        ssize_t sent_tmp = send(wrapper->sockfd, buffer, size, 0);
         if (sent_tmp == -1)
             res = 1;
         size -= sent_tmp;
