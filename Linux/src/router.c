@@ -343,7 +343,7 @@ void router_update_routing_table(struct router *router, uint32_t svaddr,
 
     struct router_connection *p2p_con = create_connection(vaddr, raddr, rport);
     p2p_con->active = 0;
-    set_timers(router, p2p_con, 0, 10);
+    set_timers(router, p2p_con, 2, 30);
 
     pthread_mutex_lock(&router->pending_p2p_connections_lock);
     HASH_ADD_INT(router->pending_p2p_connections, vaddr, p2p_con);
@@ -423,22 +423,25 @@ static void *recv_worker(void *arg)
             if (router->routing_table[key] != NULL) {
                 timerfd_settime(router->routing_table[key]->timerfdr, 0, &iti,
                                 NULL);
-            } else {
-                struct router_connection *pending_p2p;
-                pthread_mutex_lock(&router->pending_p2p_connections_lock);
-                HASH_FIND_INT(router->pending_p2p_connections, &vaddr,
-                              pending_p2p);
-                if (pending_p2p != NULL) {
-                    pending_p2p->active = 1;
-                }
-                HASH_DEL(router->pending_p2p_connections, pending_p2p);
-                pthread_mutex_unlock(&router->pending_p2p_connections_lock);
-
-                pthread_rwlock_wrlock(&router->routing_table_lock);
-                router->routing_table[key] = pending_p2p;
-                pthread_rwlock_unlock(&router->routing_table_lock);
             }
             pthread_rwlock_unlock(&router->routing_table_lock);
+
+            struct router_connection *pending_p2p;
+            pthread_mutex_lock(&router->pending_p2p_connections_lock);
+            HASH_FIND_INT(router->pending_p2p_connections, &vaddr, pending_p2p);
+            if (pending_p2p != NULL) {
+                pending_p2p->active = 1;
+                HASH_DEL(router->pending_p2p_connections, pending_p2p);
+                pthread_rwlock_wrlock(&router->routing_table_lock);
+                router
+                    ->routing_table[pending_p2p->vaddr - router->network_addr] =
+                    pending_p2p;
+                printf("P2P!!!!!!!!\n");
+                timerfd_settime(router->routing_table[key]->timerfdr, 0, &iti,
+                                NULL);
+                pthread_rwlock_unlock(&router->routing_table_lock);
+            }
+            pthread_mutex_unlock(&router->pending_p2p_connections_lock);
 
             sem_post(&router->recv_buffer->free_slots);
             continue;
@@ -593,7 +596,9 @@ static void *keep_alive_send_worker(void *arg)
             sendto(router->sockfd, &spacket, sizeof(spacket), 0,
                    (struct sockaddr *)&saddr, sizeof(struct sockaddr_in));
 
-            printf("KEEPALIVE SENT %u\n", con->vaddr);
+            printf("KEEPALIVE SENT %u %u %d\n", con->vaddr,
+                   CONNECTIONGADDR(con->addr_port),
+                   CONNECTIONGPORT(con->addr_port));
 
             timerfd_settime(con->timerfds, 0, &iti, NULL);
         }
