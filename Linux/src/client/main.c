@@ -109,7 +109,7 @@ void manager_sender_handler(void *args, struct task_info *task_info)
         free(spacket);
         break;
     }
-    case UPDATE: {
+    case UPDATES: {
         spacket = (struct vln_packet_header *)task_info->args;
         if (send_wrap(tcpwrapper, (void *)task_info->args,
                       sizeof(struct vln_packet_header) +
@@ -234,20 +234,21 @@ void manager_worker()
 
             break;
         }
-        case UPDATE: {
-            printf("Update Received\n");
-            struct vln_update_payload rpayload;
+        case UPDATES: {
+            printf("Updates Received\n");
+            struct vln_updates_payload rpayload;
             if (recv_wrap(tcpwrapper, (void *)&rpayload,
-                          sizeof(struct vln_update_payload)) != 0) {
+                          sizeof(struct vln_updates_payload)) != 0) {
                 // TODO
             }
             printf("Update %u %u %u %u %u\n", ntohl(rpayload.svaddr),
                    ntohl(rpayload.dvaddr), ntohl(rpayload.vaddr),
                    ntohl(rpayload.raddr), ntohs(rpayload.rport));
 
-            router_update_routing_table(
-                router, ntohl(rpayload.svaddr), ntohl(rpayload.vaddr),
-                ntohl(rpayload.raddr), ntohs(rpayload.rport));
+            router_try_connection(router, ntohl(rpayload.vaddr),
+                                  ntohl(rpayload.raddr), ntohs(rpayload.rport));
+
+            router_setup_pyramid(router, ntohl(rpayload.vaddr));
 
             break;
         }
@@ -258,7 +259,7 @@ void manager_worker()
                           sizeof(struct vln_updatedis_payload)) != 0) {
                 // TODO
             }
-            router_remove_connection(router, ntohl(rpayload.vaddr));
+            // router_remove_connection(router, ntohl(rpayload.vaddr));
             break;
         }
         default:
