@@ -73,26 +73,26 @@ void router_listener(void *args, struct task_info *tinfo)
             curr_con->udp_port = act->rport;
 
             uint8_t spacket_to_curr[sizeof(struct vln_packet_header) +
-                                    sizeof(struct vln_update_payload)];
+                                    sizeof(struct vln_updates_payload)];
             struct vln_packet_header *stcheader =
                 (struct vln_packet_header *)spacket_to_curr;
-            struct vln_update_payload *stcpayload =
-                (struct vln_update_payload *)PACKET_PAYLOAD(spacket_to_curr);
-            stcheader->type = UPDATE;
+            struct vln_updates_payload *stcpayload =
+                (struct vln_updates_payload *)PACKET_PAYLOAD(spacket_to_curr);
+            stcheader->type = UPDATES;
             stcheader->payload_length =
-                htonl(sizeof(struct vln_update_payload));
+                htonl(sizeof(struct vln_updates_payload));
             stcpayload->svaddr = htonl(net->address);
             stcpayload->dvaddr = htonl(curr_con->vaddr);
 
             uint8_t spacket_to_others[sizeof(struct vln_packet_header) +
-                                      sizeof(struct vln_update_payload)];
+                                      sizeof(struct vln_updates_payload)];
             struct vln_packet_header *stoheader =
                 (struct vln_packet_header *)spacket_to_others;
-            struct vln_update_payload *stopayload =
-                (struct vln_update_payload *)PACKET_PAYLOAD(spacket_to_others);
-            stoheader->type = UPDATE;
+            struct vln_updates_payload *stopayload =
+                (struct vln_updates_payload *)PACKET_PAYLOAD(spacket_to_others);
+            stoheader->type = UPDATES;
             stoheader->payload_length =
-                htonl(sizeof(struct vln_update_payload));
+                htonl(sizeof(struct vln_updates_payload));
             stopayload->svaddr = htonl(net->address);
             stopayload->vaddr = htonl(act->vaddr);
             stopayload->raddr = htonl(act->raddr);
@@ -107,7 +107,8 @@ void router_listener(void *args, struct task_info *tinfo)
                     stopayload->dvaddr = htonl(elem->vaddr);
                     if (send_wrap(elem->tcpwrapper, (void *)spacket_to_others,
                                   sizeof(struct vln_packet_header) +
-                                      sizeof(struct vln_update_payload)) != 0) {
+                                      sizeof(struct vln_updates_payload)) !=
+                        0) {
                         printf("Update Send Failed\n");
                     } else {
                         printf("Update Sent\n");
@@ -118,7 +119,8 @@ void router_listener(void *args, struct task_info *tinfo)
                     stcpayload->rport = htons(elem->udp_port);
                     if (send_wrap(curr_con->tcpwrapper, (void *)spacket_to_curr,
                                   sizeof(struct vln_packet_header) +
-                                      sizeof(struct vln_update_payload)) != 0) {
+                                      sizeof(struct vln_updates_payload)) !=
+                        0) {
                         printf("Update Send Failed\n");
                     } else {
                         printf("Update Sent\n");
@@ -130,7 +132,8 @@ void router_listener(void *args, struct task_info *tinfo)
         }
         pthread_mutex_unlock(&net->connections_lock);
         free(act);
-    } else if (tinfo->operation == PEERDISCONNECTED) {
+    } else if (tinfo->operation ==
+               PEERDISCONNECTED) { // check for vaddr == 0 which is server
         struct router_action *act = (struct router_action *)tinfo->args;
         pthread_mutex_lock(&net->connections_lock);
 
@@ -176,7 +179,7 @@ void *manager_worker(void *arg)
     //==============================
 
     //===============AUTHENTIFICATION============
-    // IF good assign address and go.
+    // If good assign address and go.
     //===============AUTHENTIFICATION============
 
     struct vln_network *curr_net = _networks; // find authorized network;
@@ -238,7 +241,7 @@ void *manager_worker(void *arg)
             printf("Connection Lost\n");
             break;
         }
-        if (rpacket.type == UPDATE) {
+        if (rpacket.type == UPDATES) {
             printf("UPDATE: ar unda miego\n");
             uint8_t rpayload[ntohl(rpacket.payload_length)];
             if (recv_wrap(scon->tcpwrapper, (void *)rpayload,
@@ -265,7 +268,8 @@ void *manager_worker(void *arg)
     pthread_mutex_unlock(&curr_net->connections_lock);
 
     printf("removing connection\n");
-    router_remove_connection(curr_net->router, scon->vaddr);
+    // router_remove_connection(curr_net->router, scon->vaddr, scon->udp_addr,
+    //                          scon->udp_port);
 
     //==============SEND PeerDisconnected===============
     do {
