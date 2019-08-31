@@ -104,7 +104,7 @@ struct router *router_create(uint32_t vaddr, uint32_t net_addr,
     router->free_slots = NULL;
     pthread_mutex_init(&router->free_slots_lock, NULL);
     pthread_cond_init(&router->free_slots_cond, NULL);
-    allocate_free_slots(router, 10);
+    allocate_free_slots(router, 20); /* Must be At least 4 !!! */
 
     router->recv_buffer = NULL;
     pthread_mutex_init(&router->recv_buffer_lock, NULL);
@@ -148,11 +148,13 @@ struct router *router_create(uint32_t vaddr, uint32_t net_addr,
     router->pending_p2p_connections = NULL;
     pthread_mutex_init(&router->pending_p2p_connections_lock, NULL);
 
-    pthread_t kasw, kacw, rt, st;
+    pthread_t kasw, kacw, rt1, rt2, st1, st2;
     pthread_create(&kasw, NULL, keep_alive_send_worker, router);
     pthread_create(&kacw, NULL, keep_alive_check_worker, router);
-    pthread_create(&rt, NULL, recv_worker, router);
-    pthread_create(&st, NULL, send_worker, router);
+    pthread_create(&rt1, NULL, recv_worker, router);
+    pthread_create(&rt2, NULL, recv_worker, router);
+    pthread_create(&st1, NULL, send_worker, router);
+    pthread_create(&st2, NULL, send_worker, router);
 
     return router;
 }
@@ -362,6 +364,14 @@ static void *recv_worker(void *arg)
     struct sockaddr_in raddr;
     memset(&raddr, 0, sizeof(struct sockaddr_in));
 
+    int key;
+    uint32_t vaddr;
+    uint32_t svaddr;
+    struct itimerspec iti;
+    memset(&iti, 0, sizeof(struct itimerspec));
+    iti.it_interval.tv_sec = 0;
+    iti.it_value.tv_sec = 30;
+
     struct router_buffer_slot *slot;
     struct vln_data_packet_header *packeth;
     void *packetd;
@@ -382,15 +392,24 @@ static void *recv_worker(void *arg)
             packeth = ((struct vln_data_packet_header *)slot->buffer);
             packetd = ((struct vln_data_packet_header *)slot->buffer) + 1;
 
-            uint32_t vaddr = ntohl(((struct iphdr *)packetd)->daddr);
-            printf("Data Recvd!!! %u\n", vaddr);
+            vaddr = ntohl(((struct iphdr *)packetd)->daddr);
+            svaddr = ntohl(((struct iphdr *)packetd)->saddr);
+
+            key = svaddr - router->network_addr;
+            pthread_rwlock_rdlock(&router->routing_table_lock);
+            if (router->routing_table[key] != NULL) {
+                timerfd_settime(router->routing_table[key]->timerfdr, 0, &iti,
+                                NULL);
+            }
+            pthread_rwlock_unlock(&router->routing_table_lock);
+            // printf("Data Recvd!!! %u %u\n", vaddr, slot->used_size);
             if (vaddr == router->vaddr) {
                 pthread_mutex_lock(&router->recv_buffer_lock);
                 DL_APPEND(router->recv_buffer, slot);
                 pthread_cond_broadcast(&router->recv_buffer_cond);
                 pthread_mutex_unlock(&router->recv_buffer_lock);
             } else {
-                printf("Retransmitin %u\n", vaddr);
+                // printf("Retransmiting %u\n", vaddr);
                 router_send(router, slot);
             }
         } else if (packeth->type == RETRANSMIT) {
@@ -401,13 +420,7 @@ static void *recv_worker(void *arg)
                 (struct vln_data_keepalive_payload *)DATA_PACKET_PAYLOAD(
                     slot->buffer);
 
-            int key;
-            struct itimerspec iti;
-            memset(&iti, 0, sizeof(struct itimerspec));
-            iti.it_interval.tv_sec = 0;
-            iti.it_value.tv_sec = 30;
-
-            uint32_t vaddr = ntohl(rpayload->vaddr);
+            vaddr = ntohl(rpayload->vaddr);
 
             key = vaddr - router->network_addr;
             printf("Vaddr %u key %d\n", ntohl(rpayload->vaddr), key);
@@ -504,7 +517,7 @@ static void *send_worker(void *arg)
         vaddr = ntohl(((struct iphdr *)packetd)->daddr);
 
         if (vaddr > router->network_addr && vaddr < router->broadcast_addr) {
-            printf("TRANSMIT %u\n", vaddr);
+            // printf("TRANSMIT %u\n", vaddr);
             key = vaddr - router->network_addr;
             pthread_rwlock_rdlock(&router->routing_table_lock);
             if (router->routing_table[key] == NULL) {

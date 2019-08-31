@@ -180,6 +180,7 @@ void *recv_thread(void *arg)
     while (1) {
         slot = router_receive(router);
 
+        // void *buff = DATA_PACKET_PAYLOAD(slot->buffer);
         // char saddr[INET_ADDRSTRLEN];
         // char daddr[INET_ADDRSTRLEN];
         // inet_ntop(AF_INET, &((struct iphdr *)buff)->saddr, saddr,
@@ -187,7 +188,8 @@ void *recv_thread(void *arg)
         // inet_ntop(AF_INET, &((struct iphdr *)buff)->daddr, daddr,
         //           INET_ADDRSTRLEN);
 
-        // printf("Received from V %s %s %d bytes\n", saddr, daddr, size);
+        // printf("Received from V %s %s %d bytes\n", saddr, daddr,
+        //        slot->used_size - sizeof(struct vln_data_packet_header));
 
         write(_tunfd, slot->buffer + sizeof(struct vln_data_packet_header),
               slot->used_size - sizeof(struct vln_data_packet_header));
@@ -207,6 +209,7 @@ void *send_thread(void *arg)
         slot->used_size =
             read(_tunfd, slot->buffer + sizeof(struct vln_data_packet_header),
                  SLOT_SIZE - sizeof(struct vln_data_packet_header));
+        slot->used_size += sizeof(struct vln_data_packet_header);
         ((struct vln_data_packet_header *)slot->buffer)->type = DATA;
         router_send(router, slot);
     }
