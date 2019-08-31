@@ -20,6 +20,7 @@
 #include "../lib/tcpwrapper.h"
 #include "../lib/uthash.h"
 #include "../router.h"
+#include "vlnadapter.h"
 
 // TODO!!!!!!!
 #define UPDATETABLE 700
@@ -28,7 +29,7 @@
 //===========GLOBALS===========
 char *_server_addr = "34.65.27.69"; // Must be changed.
 int _server_port_temp = 33507; // Must be changed.
-int _tunfd;
+struct tunnel_interface *_interfeace;
 //===========GLOBALS===========
 
 void router_listener(void *args, struct task_info *tinfo)
@@ -37,136 +38,6 @@ void router_listener(void *args, struct task_info *tinfo)
     // TODO;
 
     printf("Peers Changed\n");
-}
-
-/* Arguments taken by the function:
- *
- * char *name is the name of an interface (or '\0'). MUST have enough
- * space to hold the interface name if '\0'.
- *
- * int flags: interface (TUNSETIFF) flags (eg, IFF_TUN etc.)
- */
-int create_adapter(char *name, int flags)
-{
-    int fd, err, sfd;
-    struct ifreq ifr;
-
-    /* open the clone device */
-    if ((fd = open("/dev/net/tun", O_RDWR)) < 0) {
-        dprintf(STDERR_FILENO,
-                "Creating newtork interface failed: \n Opening clone device "
-                "failed: %s\n",
-                strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-
-    memset(&ifr, 0, sizeof(struct ifreq));
-
-    ifr.ifr_flags = flags;
-
-    if (*name) {
-        strcpy(ifr.ifr_name, name);
-    }
-
-    /* try to create the device */
-    if ((err = ioctl(fd, TUNSETIFF, (void *)&ifr)) < 0) {
-        dprintf(STDERR_FILENO,
-                "Creating newtork interface failed: \n Creating device "
-                "failed: %s\n",
-                strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-
-    /* get actual name of an interface */
-    strcpy(name, ifr.ifr_name);
-
-    if ((sfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
-        dprintf(STDERR_FILENO,
-                "Creating newtork interface failed: \n Creating socket "
-                "failed: %s\n",
-                strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-
-    //------------------------
-    if (ioctl(sfd, SIOCGIFFLAGS, &ifr) < 0) {
-        printf("Getting interface flags failed: %s\n", strerror(errno));
-    }
-    printf("Flags %d\n", ifr.ifr_flags);
-    //------------------------
-
-    ifr.ifr_flags = IFF_UP | IFF_RUNNING | IFF_NOARP | IFF_POINTOPOINT;
-    if (ioctl(sfd, SIOCSIFFLAGS, &ifr) < 0) {
-        dprintf(STDERR_FILENO,
-                "Creating newtork interface failed: \n Setting network "
-                "interface flags "
-                "failed: %s\n",
-                strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-
-    close(sfd);
-
-    return fd;
-}
-
-int add_vaddr_tunnel_interface(struct vln_initr_payload *paylod)
-{
-
-    struct sockaddr_in *addr;
-    struct ifreq ifr;
-
-    strcpy(ifr.ifr_name, "testint1");
-
-    addr = (struct sockaddr_in *)&ifr.ifr_addr;
-    addr->sin_addr.s_addr = paylod->vaddr;
-    addr->sin_family = AF_INET;
-
-    int sfd = socket(AF_INET, SOCK_DGRAM, 0);
-
-    if (ioctl(sfd, SIOCSIFADDR, &ifr) < 0) {
-        printf("Setting IP address failed: %s\n", strerror(errno));
-        return -1;
-    } else {
-        printf("Set Inet\n");
-    }
-
-    addr = (struct sockaddr_in *)&ifr.ifr_netmask;
-    addr->sin_addr.s_addr = paylod->maskaddr;
-
-    if (ioctl(sfd, SIOCSIFNETMASK, &ifr) < 0) {
-        printf("Setting mask address failed: %s\n", strerror(errno));
-        return -1;
-    } else {
-        printf("Set Mask Address\n");
-    }
-
-    addr = (struct sockaddr_in *)&ifr.ifr_broadaddr;
-    addr->sin_addr.s_addr = paylod->broadaddr;
-
-    if (ioctl(sfd, SIOCSIFBRDADDR, &ifr) < 0) {
-        printf("Setting brodcast address failed: %s\n", strerror(errno));
-        return -1;
-    } else {
-        printf("Set Brodcast Address\n");
-    }
-
-    // TODO
-    // sfd = socket(AF_INET6, SOCK_DGRAM, 0);
-
-    // addr = (struct sockaddr_in *)&ifr.ifr_addr;
-    // addr->sin_addr.s_addr = 0;
-    // addr->sin_family = AF_INET6;
-
-    // if (ioctl(sfd, SIOCSIFADDR, &ifr) < 0) {
-    //     printf("Setting IPV6 address failed: %s\n", strerror(errno));
-    //     return -1;
-    // } else {
-    //     printf("Set IPV6 Address\n");
-    // }
-
-    close(sfd);
-    return 1;
 }
 
 void *recv_thread(void *arg)
@@ -191,7 +62,8 @@ void *recv_thread(void *arg)
         // printf("Received from V %s %s %d bytes\n", saddr, daddr,
         //        slot->used_size - sizeof(struct vln_data_packet_header));
 
-        write(_tunfd, slot->buffer + sizeof(struct vln_data_packet_header),
+        write(_interfeace->fd,
+              slot->buffer + sizeof(struct vln_data_packet_header),
               slot->used_size - sizeof(struct vln_data_packet_header));
 
         router_add_free_slot(router, slot);
@@ -207,7 +79,8 @@ void *send_thread(void *arg)
     while (1) {
         slot = router_get_free_slot(router);
         slot->used_size =
-            read(_tunfd, slot->buffer + sizeof(struct vln_data_packet_header),
+            read(_interfeace->fd,
+                 slot->buffer + sizeof(struct vln_data_packet_header),
                  SLOT_SIZE - sizeof(struct vln_data_packet_header));
         slot->used_size += sizeof(struct vln_data_packet_header);
         ((struct vln_data_packet_header *)slot->buffer)->type = DATA;
@@ -320,7 +193,9 @@ void manager_worker()
             if (recv_wrap(tcpwrapper, (void *)&rpayload,
                           sizeof(struct vln_initr_payload)) != 0)
                 printf("error recv_wrap INITR \n");
-            if (add_vaddr_tunnel_interface(&rpayload) == -1) {
+
+            if (tunnel_interface_set_network(rpayload.vaddr, rpayload.maskaddr,
+                                             rpayload.broadaddr) == -1) {
                 dprintf(STDERR_FILENO,
                         "Adding payload in interface failed: %s\n ",
                         strerror(errno));
@@ -396,12 +271,11 @@ void manager_worker()
 
 int main(int argc, char **argv)
 {
-    char adapter_name[IFNAMSIZ];
-    strcpy(adapter_name, "testint1");
+    _interfeace = tunnel_interface_create(IFF_TUN | IFF_NO_PI);
 
-    _tunfd = create_adapter(adapter_name, IFF_TUN | IFF_NO_PI);
-
-    manager_worker();
+    if (_interfeace != NULL) {
+        manager_worker();
+    }
 
     pthread_exit(NULL);
     return 0;
