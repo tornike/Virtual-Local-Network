@@ -5,6 +5,8 @@
 #include "lib/taskexecutor.h"
 #include <stdlib.h>
 
+#define SLOT_SIZE 4096
+
 /* Listener Actions */
 #define PEERCONNECTED 1
 #define PEERDISCONNECTED 2
@@ -13,6 +15,15 @@ struct router_action {
     uint32_t vaddr;
     uint32_t raddr;
     uint32_t rport;
+};
+
+/* Only buffer and used_size should be changed by external classes. */
+struct router_buffer_slot {
+    uint8_t buffer[SLOT_SIZE];
+    size_t used_size;
+
+    struct router_buffer_slot *next;
+    struct router_buffer_slot *prev;
 };
 
 struct router;
@@ -31,10 +42,13 @@ void router_remove_connection(struct router *router, uint32_t vaddr);
 
 int router_transmit(struct router *, void *packet, size_t size);
 
-size_t router_receive(struct router *, void *buffer,
-                      size_t size); /* size must be big enough */
+struct router_buffer_slot *router_get_free_slot(struct router *);
 
-size_t router_send(struct router *router, void *buffer, size_t size);
+void router_add_free_slot(struct router *, struct router_buffer_slot *);
+
+struct router_buffer_slot *router_receive(struct router *);
+
+void router_send(struct router *router, struct router_buffer_slot *);
 
 void router_get_raddr(struct router *, uint32_t *raddr, uint16_t *rport);
 

@@ -176,9 +176,9 @@ void *recv_thread(void *arg)
     struct sockaddr_in raddr;
     memset(&raddr, 0, sizeof(struct sockaddr_in));
 
-    char buff[BUFFERSIZE];
+    struct router_buffer_slot *slot;
     while (1) {
-        int size = router_receive(router, buff, BUFFERSIZE);
+        slot = router_receive(router);
 
         // char saddr[INET_ADDRSTRLEN];
         // char daddr[INET_ADDRSTRLEN];
@@ -189,7 +189,10 @@ void *recv_thread(void *arg)
 
         // printf("Received from V %s %s %d bytes\n", saddr, daddr, size);
 
-        write(_tunfd, buff, size);
+        write(_tunfd, slot->buffer + sizeof(struct vln_data_packet_header),
+              slot->used_size - sizeof(struct vln_data_packet_header));
+
+        router_add_free_slot(router, slot);
     }
     return NULL;
 }
@@ -198,10 +201,14 @@ void *send_thread(void *arg)
 {
     struct router *router = (struct router *)arg;
     // TODO
-    char buff[BUFFERSIZE];
+    struct router_buffer_slot *slot;
     while (1) {
-        int size = read(_tunfd, buff, BUFFERSIZE);
-        router_send(router, buff, size);
+        slot = router_get_free_slot(router);
+        slot->used_size =
+            read(_tunfd, slot->buffer + sizeof(struct vln_data_packet_header),
+                 SLOT_SIZE - sizeof(struct vln_data_packet_header));
+        ((struct vln_data_packet_header *)slot->buffer)->type = DATA;
+        router_send(router, slot);
     }
 
     return NULL;

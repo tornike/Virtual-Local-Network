@@ -20,9 +20,9 @@
 #include "lib/protocol.h"
 #include "lib/taskexecutor.h"
 #include "lib/uthash.h"
+#include "lib/utlist.h"
 
 #define MAX_PACKETS 100
-#define SLOT_SIZE 4096
 #define MAX_EVENTS 10
 
 #define CONNECTIONSADDR(addr_port, addr) *(uint32_t *)&addr_port = addr
@@ -30,19 +30,6 @@
 #define CONNECTIONSPORT(addr_port, port)                                       \
     *(uint16_t *)((uint32_t *)&addr_port + 1) = port
 #define CONNECTIONGPORT(addr_port) *(uint16_t *)((uint32_t *)&addr_port + 1)
-
-struct router_buffer_slot {
-    uint8_t buffer[SLOT_SIZE];
-    size_t used_size;
-};
-
-struct router_buffer {
-    int read_idx;
-    sem_t used_slots;
-    struct router_buffer_slot slots[MAX_PACKETS]; /* Different cache lines */
-    sem_t free_slots;
-    int write_idx;
-};
 
 struct router_connection {
     uint32_t vaddr;
@@ -57,15 +44,26 @@ struct router_connection {
 };
 
 struct router {
+    int sockfd;
+
     uint32_t vaddr;
     uint32_t network_addr;
     uint32_t broadcast_addr;
     size_t subnet_size;
+
     struct router_connection **routing_table;
     pthread_rwlock_t routing_table_lock;
-    int sockfd;
-    struct router_buffer *recv_buffer;
-    struct router_buffer *send_buffer;
+
+    struct router_buffer_slot *free_slots;
+    pthread_mutex_t free_slots_lock;
+    pthread_cond_t free_slots_cond;
+
+    struct router_buffer_slot *recv_buffer;
+    pthread_mutex_t recv_buffer_lock;
+    pthread_cond_t recv_buffer_cond;
+    struct router_buffer_slot *send_buffer;
+    pthread_mutex_t send_buffer_lock;
+    pthread_cond_t send_buffer_cond;
 
     int sepoll_fd;
     struct epoll_event sevent, sevents[MAX_EVENTS];
@@ -79,7 +77,7 @@ struct router {
     pthread_mutex_t pending_p2p_connections_lock;
 };
 
-static void init_router_buffer(struct router_buffer **);
+static void allocate_free_slots(struct router *, size_t slot_count);
 static struct router_connection *
 create_connection(uint32_t vaddr, uint32_t raddr, uint32_t rport);
 void destroy_connection(struct router_connection *con);
@@ -103,8 +101,17 @@ struct router *router_create(uint32_t vaddr, uint32_t net_addr,
     };
     router->peer_listener = taskexecutor;
 
-    init_router_buffer(&router->recv_buffer);
-    init_router_buffer(&router->send_buffer);
+    router->free_slots = NULL;
+    pthread_mutex_init(&router->free_slots_lock, NULL);
+    pthread_cond_init(&router->free_slots_cond, NULL);
+    allocate_free_slots(router, 10);
+
+    router->recv_buffer = NULL;
+    pthread_mutex_init(&router->recv_buffer_lock, NULL);
+    pthread_cond_init(&router->recv_buffer_cond, NULL);
+    router->send_buffer = NULL;
+    pthread_mutex_init(&router->send_buffer_lock, NULL);
+    pthread_cond_init(&router->send_buffer_cond, NULL);
 
     router->subnet_size = broad_addr - net_addr - 1;
 
@@ -167,6 +174,29 @@ void router_remove_connection(struct router *router, uint32_t vaddr)
         printf("Waishalaaa\n");
         destroy_connection(con);
     }
+}
+
+struct router_buffer_slot *router_get_free_slot(struct router *router)
+{
+    struct router_buffer_slot *res;
+    pthread_mutex_lock(&router->free_slots_lock);
+    while (router->free_slots == NULL) {
+        pthread_cond_wait(&router->free_slots_cond, &router->free_slots_lock);
+    }
+    res = router->free_slots;
+    DL_DELETE(router->free_slots, res);
+    pthread_mutex_unlock(&router->free_slots_lock);
+
+    return res;
+}
+
+void router_add_free_slot(struct router *router,
+                          struct router_buffer_slot *slot)
+{
+    pthread_mutex_lock(&router->free_slots_lock);
+    DL_APPEND(router->free_slots, slot);
+    pthread_cond_broadcast(&router->free_slots_cond);
+    pthread_mutex_unlock(&router->free_slots_lock);
 }
 
 int router_transmit(struct router *router, void *packet, size_t size)
@@ -234,57 +264,26 @@ int router_transmit(struct router *router, void *packet, size_t size)
     return ssize;
 }
 
-size_t router_receive(struct router *router, void *buffer, size_t size)
+struct router_buffer_slot *router_receive(struct router *router)
 {
-    sem_wait(&router->recv_buffer->used_slots);
-    struct router_buffer_slot *slot =
-        &router->recv_buffer->slots[router->recv_buffer->read_idx];
+    struct router_buffer_slot *res;
+    pthread_mutex_lock(&router->recv_buffer_lock);
+    while (router->recv_buffer == NULL) {
+        pthread_cond_wait(&router->recv_buffer_cond, &router->recv_buffer_lock);
+    }
+    res = router->recv_buffer;
+    DL_DELETE(router->recv_buffer, res);
+    pthread_mutex_unlock(&router->recv_buffer_lock);
 
-    size_t real_size =
-        size > slot->used_size - sizeof(struct vln_data_packet_header) ?
-            slot->used_size - sizeof(struct vln_data_packet_header) :
-            size;
-
-    memcpy(buffer, slot->buffer + sizeof(struct vln_data_packet_header),
-           real_size);
-
-    sem_post(&router->recv_buffer->free_slots);
-    router->recv_buffer->read_idx =
-        (router->recv_buffer->read_idx + 1) % MAX_PACKETS;
-
-    return real_size;
+    return res;
 }
 
-size_t router_send(struct router *router, void *buffer, size_t size)
+void router_send(struct router *router, struct router_buffer_slot *slot)
 {
-    // This method must be cold by 1 thread. if Added retransmision in Client
-    // this will be a problem.
-    struct router_buffer_slot *slot;
-    size_t real_size;
-
-    sem_wait(&router->send_buffer->free_slots);
-    slot = &router->send_buffer->slots[router->send_buffer->write_idx];
-    ((struct vln_data_packet_header *)slot->buffer)->type = DATA;
-
-    real_size = size > SLOT_SIZE - sizeof(struct vln_data_packet_header) ?
-                    SLOT_SIZE - sizeof(struct vln_data_packet_header) :
-                    size;
-
-    slot->used_size = real_size + sizeof(struct vln_data_packet_header);
-
-    memcpy(slot->buffer + sizeof(struct vln_data_packet_header), buffer,
-           real_size);
-
-    uint32_t vaddr = ntohl(
-        ((struct iphdr *)(slot->buffer + sizeof(struct vln_data_packet_header)))
-            ->daddr);
-    // printf("router_send Sending to %u\n", vaddr);
-
-    sem_post(&router->send_buffer->used_slots);
-    router->send_buffer->write_idx =
-        (router->send_buffer->write_idx + 1) % MAX_PACKETS;
-
-    return real_size;
+    pthread_mutex_lock(&router->send_buffer_lock);
+    DL_APPEND(router->send_buffer, slot);
+    pthread_cond_broadcast(&router->send_buffer_cond);
+    pthread_mutex_unlock(&router->send_buffer_lock);
 }
 
 void router_get_raddr(struct router *router, uint32_t *raddr, uint16_t *rport)
@@ -364,46 +363,39 @@ static void *recv_worker(void *arg)
     memset(&raddr, 0, sizeof(struct sockaddr_in));
 
     struct router_buffer_slot *slot;
-    struct vln_data_packet_header *header;
-    struct vln_data_init_payload *payload;
-    void *packeth;
+    struct vln_data_packet_header *packeth;
     void *packetd;
     while (1) {
-        sem_wait(&router->recv_buffer->free_slots);
-        slot = &router->recv_buffer->slots[router->recv_buffer->write_idx];
+        slot = router_get_free_slot(router);
 
         slot->used_size = recvfrom(router->sockfd, slot->buffer, SLOT_SIZE, 0,
                                    (struct sockaddr *)&raddr, &slen);
 
-        header = (struct vln_data_packet_header *)slot->buffer;
+        packeth = (struct vln_data_packet_header *)slot->buffer;
 
         // char ip[INET_ADDRSTRLEN];
         // inet_ntop(AF_INET, &raddr.sin_addr, (void *)&ip, INET_ADDRSTRLEN);
         // printf("Received from %s:%d %ld bytes\n", ip, raddr.sin_port,
         //        slot->used_size);
 
-        if (header->type == DATA) {
-            // printf("Data Recvd!!!\n");
+        if (packeth->type == DATA) {
             packeth = ((struct vln_data_packet_header *)slot->buffer);
             packetd = ((struct vln_data_packet_header *)slot->buffer) + 1;
 
             uint32_t vaddr = ntohl(((struct iphdr *)packetd)->daddr);
+            printf("Data Recvd!!! %u\n", vaddr);
             if (vaddr == router->vaddr) {
-                router->recv_buffer->write_idx =
-                    (router->recv_buffer->write_idx + 1) % MAX_PACKETS;
-                sem_post(&router->recv_buffer->used_slots);
+                pthread_mutex_lock(&router->recv_buffer_lock);
+                DL_APPEND(router->recv_buffer, slot);
+                pthread_cond_broadcast(&router->recv_buffer_cond);
+                pthread_mutex_unlock(&router->recv_buffer_lock);
             } else {
-                // printf("Retransmiting\n");
-                router_send(
-                    router,
-                    slot->buffer + sizeof(struct vln_data_packet_header),
-                    slot->used_size - sizeof(struct vln_data_packet_header));
-                sem_post(&router->recv_buffer->free_slots);
-                continue;
+                printf("Retransmitin %u\n", vaddr);
+                router_send(router, slot);
             }
-        } else if (header->type == RETRANSMIT) {
+        } else if (packeth->type == RETRANSMIT) {
 
-        } else if (header->type == KEEPALIVE) {
+        } else if (packeth->type == KEEPALIVE) {
             printf("KEEPALIVE Recvd\n");
             struct vln_data_keepalive_payload *rpayload =
                 (struct vln_data_keepalive_payload *)DATA_PACKET_PAYLOAD(
@@ -443,12 +435,10 @@ static void *recv_worker(void *arg)
             }
             pthread_mutex_unlock(&router->pending_p2p_connections_lock);
 
-            sem_post(&router->recv_buffer->free_slots);
-            continue;
-        } else if (header->type == INIT) {
+        } else if (packeth->type == INIT) {
             printf("Init Recvd\n");
-            payload =
-                (struct vln_data_init_payload *)DATA_PACKET_PAYLOAD(header);
+            struct vln_data_init_payload *payload =
+                (struct vln_data_init_payload *)DATA_PACKET_PAYLOAD(packeth);
             printf("Router Vaddr %u \n", ntohl(payload->vaddr));
             printf("Router Rport %d SET FOR HOST %u\n", ntohs(raddr.sin_port),
                    ntohl(payload->vaddr));
@@ -470,8 +460,6 @@ static void *recv_worker(void *arg)
             task->args = act;
             taskexecutor_add_task(router->peer_listener, task);
 
-            sem_post(&router->recv_buffer->free_slots);
-            continue;
         } else {
             printf("bad type\n");
         }
@@ -482,17 +470,16 @@ static void *recv_worker(void *arg)
 static void *send_worker(void *arg)
 {
     struct router *router = (struct router *)arg;
+
     socklen_t slen = sizeof(struct sockaddr_in);
     struct sockaddr_in saddr;
     memset(&saddr, 0, slen);
 
     saddr.sin_family = AF_INET;
 
-    uint32_t vaddr;
-    struct router_buffer_slot *slot;
-    struct vln_data_packet_header *header;
     void *packeth;
     void *packetd;
+    uint32_t vaddr;
 
     int key;
     struct itimerspec iti;
@@ -500,28 +487,29 @@ static void *send_worker(void *arg)
     iti.it_interval.tv_sec = 0;
     iti.it_value.tv_sec = 10;
 
+    struct router_buffer_slot *slot_to_send;
     while (1) {
-        sem_wait(&router->send_buffer->used_slots);
-        slot = &router->send_buffer->slots[router->send_buffer->read_idx];
+        pthread_mutex_lock(&router->send_buffer_lock);
+        while (router->send_buffer == NULL) {
+            pthread_cond_wait(&router->send_buffer_cond,
+                              &router->send_buffer_lock);
+        }
+        slot_to_send = router->send_buffer;
+        DL_DELETE(router->send_buffer, slot_to_send);
+        pthread_mutex_unlock(&router->send_buffer_lock);
 
-        packeth = ((struct vln_data_packet_header *)slot->buffer);
-        packetd = ((struct vln_data_packet_header *)slot->buffer) + 1;
+        packeth = ((struct vln_data_packet_header *)slot_to_send->buffer);
+        packetd = ((struct vln_data_packet_header *)slot_to_send->buffer) + 1;
 
         vaddr = ntohl(((struct iphdr *)packetd)->daddr);
 
-        // printf("send_worker Sending to %u\n", vaddr);
-
         if (vaddr > router->network_addr && vaddr < router->broadcast_addr) {
-            // printf("TRANSMIT %u\n", vaddr);
+            printf("TRANSMIT %u\n", vaddr);
             key = vaddr - router->network_addr;
             pthread_rwlock_rdlock(&router->routing_table_lock);
             if (router->routing_table[key] == NULL) {
                 printf("CONNECTION IS NULL!!!\n");
-                pthread_rwlock_unlock(&router->routing_table_lock);
             } else {
-                // need this??
-                ((struct vln_data_packet_header *)packeth)->type = DATA;
-                // need this??
 
                 saddr.sin_port = htons(CONNECTIONGPORT(
                     router->routing_table[key]->addr_port)); // hton ??
@@ -532,13 +520,13 @@ static void *send_worker(void *arg)
                 //        CONNECTIONGADDR(router->routing_table[key]->addr_port),
                 //        CONNECTIONGPORT(router->routing_table[key]->addr_port));
 
-                sendto(router->sockfd, packeth, slot->used_size, 0,
+                sendto(router->sockfd, packeth, slot_to_send->used_size, 0,
                        (struct sockaddr *)&saddr, slen);
 
                 timerfd_settime(router->routing_table[key]->timerfds, 0, &iti,
                                 NULL);
-                pthread_rwlock_unlock(&router->routing_table_lock);
             }
+            pthread_rwlock_unlock(&router->routing_table_lock);
         } else if (vaddr == router->broadcast_addr) {
             printf("BROADCAST %u\n", vaddr);
             // TODO
@@ -547,9 +535,7 @@ static void *send_worker(void *arg)
             // WHAT TO DO???
         }
 
-        router->send_buffer->read_idx =
-            (router->send_buffer->read_idx + 1) % MAX_PACKETS;
-        sem_post(&router->send_buffer->free_slots);
+        router_add_free_slot(router, slot_to_send);
     }
 
     return NULL;
@@ -640,14 +626,26 @@ static void *keep_alive_check_worker(void *arg)
     return NULL;
 }
 
-static void init_router_buffer(struct router_buffer **buff)
+static void allocate_free_slots(struct router *router, size_t slot_count)
 {
-    *buff = malloc(sizeof(struct router_buffer));
-    sem_init(&(*buff)->free_slots, 0, MAX_PACKETS);
-    sem_init(&(*buff)->used_slots, 0, 0);
-    (*buff)->write_idx = 0;
-    (*buff)->read_idx = 0;
+    struct router_buffer_slot *slot;
+    for (int i = 0; i < slot_count; i++) {
+        slot = malloc(sizeof(struct router_buffer_slot));
+        slot->used_size = 0;
+        if (slot != NULL) {
+            DL_APPEND(router->free_slots, slot);
+        }
+    }
 }
+
+// static void init_router_buffer(struct router_buffer **buff)
+// {
+//     *buff = malloc(sizeof(struct router_buffer));
+//     sem_init(&(*buff)->free_slots, 0, MAX_PACKETS);
+//     sem_init(&(*buff)->used_slots, 0, 0);
+//     (*buff)->write_idx = 0;
+//     (*buff)->read_idx = 0;
+// }
 
 static struct router_connection *
 create_connection(uint32_t vaddr, uint32_t raddr, uint32_t rport)
