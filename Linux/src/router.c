@@ -40,7 +40,6 @@ struct router_connection {
     uint8_t active;
 
     UT_hash_handle hh;
-    UT_hash_handle hhh;
 };
 
 struct router {
@@ -75,7 +74,7 @@ struct router {
     struct taskexecutor *peer_listener;
 
     struct router_connection *held_connections;
-    pthread_mutex_t held_connections_lock;
+    pthread_rwlock_t held_connections_lock;
 
     uint64_t root_addr_port;
 };
@@ -146,7 +145,7 @@ struct router *router_create(uint32_t vaddr, uint32_t net_addr,
     }
 
     router->held_connections = NULL;
-    pthread_mutex_init(&router->held_connections_lock, NULL);
+    pthread_rwlock_init(&router->held_connections_lock, NULL);
 
     router->peer_listener = taskexecutor;
 
@@ -173,12 +172,11 @@ void router_try_connection(struct router *router, uint32_t vaddr,
 {
     struct router_connection *new_con = create_connection(vaddr, raddr, rport);
     new_con->active = 0;
-    set_timers(router, new_con, 1, 30);
 
-    pthread_mutex_lock(&router->held_connections_lock);
-    HASH_ADD(hhh, router->held_connections, addr_port, sizeof(uint64_t),
-             new_con);
-    pthread_mutex_unlock(&router->held_connections_lock);
+    pthread_rwlock_wrlock(&router->held_connections_lock);
+    HASH_ADD_UINT64_T(router->held_connections, addr_port, new_con);
+    set_timers(router, new_con, 1, 30);
+    pthread_rwlock_unlock(&router->held_connections_lock);
 }
 
 void router_remove_connection(struct router *router, uint32_t vaddr,
@@ -189,16 +187,15 @@ void router_remove_connection(struct router *router, uint32_t vaddr,
     CONNECTIONSPORT(addr_port, rport);
 
     struct router_connection *con;
-    pthread_mutex_lock(&router->held_connections_lock);
-    HASH_FIND(hhh, router->held_connections, &addr_port, sizeof(uint64_t), con);
+    pthread_rwlock_wrlock(&router->held_connections_lock);
+    HASH_FIND_UINT64_T(router->held_connections, &addr_port, con);
     if (con != NULL) {
         HASH_DEL(router->held_connections, con);
+        printf("Waishalaaa\n");
     }
-    pthread_mutex_unlock(&router->held_connections_lock);
+    pthread_rwlock_unlock(&router->held_connections_lock);
 
     if (con != NULL) {
-        router_setup_pyramid(router, con->vaddr);
-        printf("Waishalaaa\n");
         destroy_connection(con);
     }
 }
@@ -273,11 +270,11 @@ void router_send_init(struct router *router, uint32_t raddr, uint32_t rport)
     router->root_addr_port = new_con->addr_port;
     set_timers(router, new_con, 10, 30);
 
-    pthread_mutex_lock(&router->held_connections_lock);
-    HASH_ADD(hhh, router->held_connections, addr_port, sizeof(uint64_t),
-             new_con);
     update_routing_table(router, new_con->vaddr, new_con);
-    pthread_mutex_unlock(&router->held_connections_lock);
+
+    pthread_rwlock_wrlock(&router->held_connections_lock);
+    HASH_ADD_UINT64_T(router->held_connections, addr_port, new_con);
+    pthread_rwlock_unlock(&router->held_connections_lock);
 
     int sent = sendto(router->sockfd, spacket, sizeof(spacket), 0,
                       (struct sockaddr *)&saddr, sizeof(struct sockaddr_in));
@@ -296,16 +293,16 @@ void router_setup_pyramid(struct router *router, uint32_t vaddr)
     int key = vaddr - router->network_addr;
 
     struct router_connection *root_con;
-    pthread_mutex_lock(&router->held_connections_lock);
-    HASH_FIND(hhh, router->held_connections, &router->root_addr_port,
-              sizeof(uint64_t), root_con);
+    pthread_rwlock_rdlock(&router->held_connections_lock);
+    HASH_FIND_UINT64_T(router->held_connections, &router->root_addr_port,
+                       root_con);
     if (root_con != NULL) {
         pthread_rwlock_wrlock(&router->routing_table_lock);
         router->routing_table[key] = root_con;
         pthread_rwlock_unlock(&router->routing_table_lock);
         printf("Pyramid set\n");
     }
-    pthread_mutex_unlock(&router->held_connections_lock);
+    pthread_rwlock_unlock(&router->held_connections_lock);
 }
 
 static void *recv_worker(void *arg)
@@ -348,12 +345,20 @@ static void *recv_worker(void *arg)
             svaddr = ntohl(((struct iphdr *)packetd)->saddr);
 
             key = svaddr - router->network_addr;
-            pthread_rwlock_rdlock(&router->routing_table_lock);
-            if (router->routing_table[key] != NULL) {
-                timerfd_settime(router->routing_table[key]->timerfdr, 0, &iti,
-                                NULL);
+
+            uint64_t hc_addr_port;
+            CONNECTIONSADDR(hc_addr_port, ntohl(raddr.sin_addr.s_addr));
+            CONNECTIONSPORT(hc_addr_port, ntohs(raddr.sin_port));
+
+            struct router_connection *held_con;
+            pthread_rwlock_rdlock(&router->held_connections_lock);
+            HASH_FIND_UINT64_T(router->held_connections, &hc_addr_port,
+                               held_con);
+            if (held_con != NULL) {
+                timerfd_settime(held_con->timerfdr, 0, &iti, NULL);
             }
-            pthread_rwlock_unlock(&router->routing_table_lock);
+            pthread_rwlock_unlock(&router->held_connections_lock);
+
             // printf("Data Recvd!!! %u %u\n", vaddr, slot->used_size);
             if (vaddr == router->vaddr) {
                 pthread_mutex_lock(&router->recv_buffer_lock);
@@ -365,7 +370,6 @@ static void *recv_worker(void *arg)
                 router_send(router, slot);
             }
         } else if (packeth->type == KEEPALIVE) {
-
             printf("KEEPALIVE Recvd\n");
             struct vln_data_keepalive_payload *rpayload =
                 (struct vln_data_keepalive_payload *)DATA_PACKET_PAYLOAD(
@@ -377,27 +381,30 @@ static void *recv_worker(void *arg)
             printf("Keepalive Vaddr %u key %d\n", ntohl(rpayload->vaddr),
                    key); // agar
 
+            printf("KEEPALIVE RECV %u %u %d\n", vaddr,
+                   ntohl(raddr.sin_addr.s_addr), ntohs(raddr.sin_port));
+
             uint64_t hc_addr_port;
             CONNECTIONSADDR(hc_addr_port, ntohl(raddr.sin_addr.s_addr));
             CONNECTIONSPORT(hc_addr_port, ntohs(raddr.sin_port));
 
             struct router_connection *held_con;
-            pthread_mutex_lock(&router->held_connections_lock);
-            HASH_FIND(hhh, router->held_connections, &hc_addr_port,
-                      sizeof(uint64_t), held_con);
+            pthread_rwlock_wrlock(&router->held_connections_lock);
+            HASH_FIND_UINT64_T(router->held_connections, &hc_addr_port,
+                               held_con);
             if (held_con != NULL) {
-                timerfd_settime(held_con->timerfdr, 0, &iti, NULL);
                 printf("timer reset\n"); // agar
                 if (held_con->active == 0) {
                     held_con->active = 1;
                     // rlistener, update for pyramids.
-                    update_routing_table(router, held_con->vaddr, held_con);
                     printf("P2P\n");
+                    update_routing_table(router, held_con->vaddr, held_con);
                 }
+                timerfd_settime(held_con->timerfdr, 0, &iti, NULL);
             } else {
                 printf("Connection NULL"); // agar
             }
-            pthread_mutex_unlock(&router->held_connections_lock);
+            pthread_rwlock_unlock(&router->held_connections_lock);
 
         } else if (packeth->type == INIT) {
             printf("Init Recvd\n");
@@ -412,12 +419,11 @@ static void *recv_worker(void *arg)
                 ntohs(raddr.sin_port));
             new_con->active = 1;
             set_timers(router, new_con, 10, 30);
-
-            pthread_mutex_lock(&router->held_connections_lock);
-            HASH_ADD(hhh, router->held_connections, addr_port, sizeof(uint64_t),
-                     new_con);
             update_routing_table(router, new_con->vaddr, new_con);
-            pthread_mutex_unlock(&router->held_connections_lock);
+
+            pthread_rwlock_wrlock(&router->held_connections_lock);
+            HASH_ADD_UINT64_T(router->held_connections, addr_port, new_con);
+            pthread_rwlock_unlock(&router->held_connections_lock);
 
             struct router_action *act = malloc(sizeof(struct router_action));
             act->vaddr = ntohl(payload->vaddr);
@@ -433,6 +439,7 @@ static void *recv_worker(void *arg)
             printf("bad type\n");
         }
     }
+    printf("recv_worker died\n");
     return NULL;
 }
 
@@ -493,7 +500,7 @@ static void *send_worker(void *arg)
                        (struct sockaddr *)&saddr, slen);
 
                 timerfd_settime(router->routing_table[key]->timerfds, 0, &iti,
-                                NULL);
+                                NULL); // es agaraa aq swori
             }
             pthread_rwlock_unlock(&router->routing_table_lock);
         } else if (vaddr == router->broadcast_addr) {
@@ -531,11 +538,12 @@ static void *keep_alive_send_worker(void *arg)
         for (i = 0; i < event_count; i++) {
             addr_port = router->sevents[i].data.u64;
 
-            pthread_mutex_lock(&router->held_connections_lock);
-            HASH_FIND(hhh, router->held_connections, &addr_port,
-                      sizeof(uint64_t), con);
+            pthread_rwlock_rdlock(&router->held_connections_lock);
+            HASH_FIND_UINT64_T(router->held_connections, &addr_port, con);
+            printf("TRY in keepalive %lu\n", con);
             if (con == NULL) {
-                pthread_mutex_unlock(&router->held_connections_lock);
+                printf("Connection NULLIA\n");
+                pthread_rwlock_unlock(&router->held_connections_lock);
                 continue;
             }
 
@@ -567,7 +575,7 @@ static void *keep_alive_send_worker(void *arg)
 
             timerfd_settime(con->timerfds, 0, &iti, NULL);
 
-            pthread_mutex_unlock(&router->held_connections_lock);
+            pthread_rwlock_unlock(&router->held_connections_lock);
         }
     }
     return NULL;
@@ -579,6 +587,7 @@ static void *keep_alive_check_worker(void *arg)
 
     struct router_connection *con;
     uint64_t addr_port;
+    uint32_t vaddr;
     int event_count, i;
     while (1) {
         event_count =
@@ -587,11 +596,10 @@ static void *keep_alive_check_worker(void *arg)
         for (i = 0; i < event_count; i++) {
             addr_port = router->revents[i].data.u64;
 
-            pthread_mutex_lock(&router->held_connections_lock);
-            HASH_FIND(hhh, router->held_connections, &addr_port,
-                      sizeof(uint64_t), con);
+            pthread_rwlock_rdlock(&router->held_connections_lock);
+            HASH_FIND_UINT64_T(router->held_connections, &addr_port, con);
             if (con == NULL) {
-                pthread_mutex_unlock(&router->held_connections_lock);
+                pthread_rwlock_unlock(&router->held_connections_lock);
                 continue;
             }
 
@@ -599,12 +607,17 @@ static void *keep_alive_check_worker(void *arg)
             uint64_t timerexps;
             read(con->timerfdr, &timerexps, sizeof(uint64_t));
             printf("Recv Timer '%lu'\n", timerexps);
+            printf("NO TRAFIC FOR %d Seconds, Dead Connection\n", 30);
             // Delete
 
-            printf("NO TRAFIC FOR %d Seconds, Dead Connection\n", 30);
+            vaddr = con->vaddr;
 
+            // if (con->active == 0) {
+            //     HASH_DEL(router->held_connections, con);
+            //     destroy_connection(con);
+            // } else {
             struct router_action *act = malloc(sizeof(struct router_action));
-            act->vaddr = con->vaddr;
+            act->vaddr = vaddr;
             act->raddr = 0; // TODO
             act->rport = 0; // TODO
 
@@ -613,8 +626,8 @@ static void *keep_alive_check_worker(void *arg)
             task->args = act;
 
             taskexecutor_add_task(router->peer_listener, task);
-
-            pthread_mutex_unlock(&router->held_connections_lock);
+            //}
+            pthread_rwlock_unlock(&router->held_connections_lock);
         }
     }
     return NULL;

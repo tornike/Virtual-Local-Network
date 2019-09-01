@@ -133,7 +133,8 @@ void router_listener(void *args, struct task_info *tinfo)
         pthread_mutex_unlock(&net->connections_lock);
         free(act);
     } else if (tinfo->operation ==
-               PEERDISCONNECTED) { // check for vaddr == 0 which is server
+               PEERDISCONNECTED) { // check for vaddr == 0 which is server on
+                                   // client
         struct router_action *act = (struct router_action *)tinfo->args;
         pthread_mutex_lock(&net->connections_lock);
 
@@ -268,8 +269,8 @@ void *manager_worker(void *arg)
     pthread_mutex_unlock(&curr_net->connections_lock);
 
     printf("removing connection\n");
-    // router_remove_connection(curr_net->router, scon->vaddr, scon->udp_addr,
-    //                          scon->udp_port);
+    router_remove_connection(curr_net->router, scon->vaddr, scon->udp_addr,
+                             scon->udp_port);
 
     //==============SEND PeerDisconnected===============
     do {

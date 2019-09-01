@@ -36,7 +36,7 @@ void router_listener(void *args, struct task_info *tinfo)
 {
     struct tcpwrapper *server_con = (struct tcpwrapper *)args;
     // TODO;
-
+    // check if its server die and if its p2p setup pyramid.
     printf("Peers Changed\n");
 }
 
@@ -268,6 +268,8 @@ void manager_worker()
         }
     }
     tcpwrapper_destroy(tcpwrapper);
+    // destroy router
+    printf("client died\n");
 }
 
 int main(int argc, char **argv)
