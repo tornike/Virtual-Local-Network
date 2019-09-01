@@ -160,11 +160,24 @@ void manager_worker()
 
     taskexecutor_start(rlistener);
 
-    struct vln_packet_header *spacket =
-        malloc(sizeof(struct vln_packet_header));
+    uint8_t *spacket = malloc(sizeof(struct vln_packet_header) +
+                              sizeof(struct vln_connect_payload));
+    struct vln_packet_header *sheader = (struct vln_packet_header *)spacket;
+    sheader->type = CONNECT;
+    sheader->payload_length = htonl(sizeof(struct vln_connect_payload));
 
-    spacket->type = INIT;
-    spacket->payload_length = 0;
+    struct vln_connect_payload *spayload =
+        spacket + sizeof(struct vln_packet_header);
+    strcpy(spayload->network_name, "1111111111");
+    strcpy(spayload->network_password, "1111111111");
+
+    if (send_wrap(tcpwrapper, (void *)spacket,
+                  sizeof(struct vln_packet_header) +
+                      htonl(sheader->payload_length)) != 0) {
+        printf("error send_wrap CONNECT\n");
+    } else {
+        printf("send_wrap CONNECT\n");
+    }
 
     struct vln_packet_header rpacket;
     while (1) {

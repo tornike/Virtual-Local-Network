@@ -92,6 +92,11 @@ struct vln_rootnode_payload {
 //     uint16_t rport;
 // } __attribute__((packed));
 
+struct vln_connect_payload { /* Connect packet payload for client */
+    char network_name[16];
+    char network_password[16];
+} __attribute__((packed));
+
 struct vln_data_packet_header {
     vln_packet_type type;
 } __attribute__((packed));
