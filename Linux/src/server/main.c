@@ -498,6 +498,10 @@ int create_network(void *NotUsed, int argc, char **argv, char **azColName)
 
 int main(int argc, char **argv)
 {
+    char *rip = "34.65.27.69";
+    // TODO
+    inet_pton(AF_INET, rip, &_rserverip);
+    _rserverip = ntohl(_rserverip);
     // if (argc < 3) {
     //     printf("Invalid Arguments!\n");
     //     return EXIT_FAILURE;
