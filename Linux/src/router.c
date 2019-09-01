@@ -338,6 +338,27 @@ static void *recv_worker(void *arg)
         // printf("Received from %s:%d %ld bytes\n", ip, raddr.sin_port,
         //        slot->used_size);
 
+        uint64_t hc_addr_port;
+        CONNECTIONSADDR(hc_addr_port, ntohl(raddr.sin_addr.s_addr));
+        CONNECTIONSPORT(hc_addr_port, ntohs(raddr.sin_port));
+
+        struct router_connection *held_con;
+        pthread_rwlock_rdlock(&router->held_connections_lock);
+        HASH_FIND_UINT64_T(router->held_connections, &hc_addr_port, held_con);
+        printf("Trying Timer Reset %u %u %d\n", vaddr,
+               ntohl(raddr.sin_addr.s_addr), ntohs(raddr.sin_port));
+        if (held_con != NULL) {
+            printf("Timer Reset %u %u %d\n", vaddr,
+                   ntohl(raddr.sin_addr.s_addr), ntohs(raddr.sin_port));
+            if (held_con->active == 0) {
+                held_con->active = 1;
+                printf("P2P\n");
+                update_routing_table(router, held_con->vaddr, held_con);
+            }
+            timerfd_settime(held_con->timerfdr, 0, &iti, NULL);
+        }
+        pthread_rwlock_unlock(&router->held_connections_lock);
+
         if (packeth->type == DATA) {
             packetd = ((struct vln_data_packet_header *)slot->buffer) + 1;
 
@@ -345,19 +366,6 @@ static void *recv_worker(void *arg)
             svaddr = ntohl(((struct iphdr *)packetd)->saddr);
 
             key = svaddr - router->network_addr;
-
-            uint64_t hc_addr_port;
-            CONNECTIONSADDR(hc_addr_port, ntohl(raddr.sin_addr.s_addr));
-            CONNECTIONSPORT(hc_addr_port, ntohs(raddr.sin_port));
-
-            struct router_connection *held_con;
-            pthread_rwlock_rdlock(&router->held_connections_lock);
-            HASH_FIND_UINT64_T(router->held_connections, &hc_addr_port,
-                               held_con);
-            if (held_con != NULL) {
-                timerfd_settime(held_con->timerfdr, 0, &iti, NULL);
-            }
-            pthread_rwlock_unlock(&router->held_connections_lock);
 
             // printf("Data Recvd!!! %u %u\n", vaddr, slot->used_size);
             if (vaddr == router->vaddr) {
@@ -378,33 +386,6 @@ static void *recv_worker(void *arg)
             vaddr = ntohl(rpayload->vaddr); // agar
 
             key = vaddr - router->network_addr; // agar
-            printf("Keepalive Vaddr %u key %d\n", ntohl(rpayload->vaddr),
-                   key); // agar
-
-            printf("KEEPALIVE RECV %u %u %d\n", vaddr,
-                   ntohl(raddr.sin_addr.s_addr), ntohs(raddr.sin_port));
-
-            uint64_t hc_addr_port;
-            CONNECTIONSADDR(hc_addr_port, ntohl(raddr.sin_addr.s_addr));
-            CONNECTIONSPORT(hc_addr_port, ntohs(raddr.sin_port));
-
-            struct router_connection *held_con;
-            pthread_rwlock_wrlock(&router->held_connections_lock);
-            HASH_FIND_UINT64_T(router->held_connections, &hc_addr_port,
-                               held_con);
-            if (held_con != NULL) {
-                printf("timer reset\n"); // agar
-                if (held_con->active == 0) {
-                    held_con->active = 1;
-                    // rlistener, update for pyramids.
-                    printf("P2P\n");
-                    update_routing_table(router, held_con->vaddr, held_con);
-                }
-                timerfd_settime(held_con->timerfdr, 0, &iti, NULL);
-            } else {
-                printf("Connection NULL"); // agar
-            }
-            pthread_rwlock_unlock(&router->held_connections_lock);
 
         } else if (packeth->type == INIT) {
             printf("Init Recvd\n");
@@ -419,6 +400,7 @@ static void *recv_worker(void *arg)
                 ntohs(raddr.sin_port));
             new_con->active = 1;
             set_timers(router, new_con, 10, 30);
+
             update_routing_table(router, new_con->vaddr, new_con);
 
             pthread_rwlock_wrlock(&router->held_connections_lock);
@@ -499,8 +481,24 @@ static void *send_worker(void *arg)
                 sendto(router->sockfd, packeth, slot_to_send->used_size, 0,
                        (struct sockaddr *)&saddr, slen);
 
-                timerfd_settime(router->routing_table[key]->timerfds, 0, &iti,
-                                NULL); // es agaraa aq swori
+                struct router_connection *held_con;
+                pthread_rwlock_rdlock(&router->held_connections_lock);
+                HASH_FIND_UINT64_T(router->held_connections,
+                                   &router->routing_table[key]->addr_port,
+                                   held_con);
+                printf("Trying Timer Reset %u %u %d\n", vaddr,
+                       ntohl(saddr.sin_addr.s_addr), ntohs(saddr.sin_port));
+                if (held_con != NULL) {
+                    printf("STimer Reset %u %u %d\n", vaddr,
+                           ntohl(saddr.sin_addr.s_addr), ntohs(saddr.sin_port));
+                    if (held_con->active == 0) {
+                        held_con->active = 1;
+                        printf("P2P\n");
+                        update_routing_table(router, held_con->vaddr, held_con);
+                    }
+                    timerfd_settime(held_con->timerfds, 0, &iti, NULL);
+                }
+                pthread_rwlock_unlock(&router->held_connections_lock);
             }
             pthread_rwlock_unlock(&router->routing_table_lock);
         } else if (vaddr == router->broadcast_addr) {

@@ -39,15 +39,15 @@ struct vln_updates_payload {
     uint16_t rport;
 } __attribute__((packed));
 
-struct vln_update_payload {
-    uint32_t svaddr;
-    uint32_t sraddr;
-    uint16_t srport;
-    uint32_t dvaddr;
-    uint32_t vaddr;
-    uint32_t raddr;
-    uint16_t rport;
-} __attribute__((packed));
+// struct vln_update_payload {
+//     uint32_t svaddr;
+//     uint32_t sraddr;
+//     uint16_t srport;
+//     uint32_t dvaddr;
+//     uint32_t vaddr;
+//     uint32_t raddr;
+//     uint16_t rport;
+// } __attribute__((packed));
 
 struct vln_updatedis_payload {
     uint32_t vaddr;
