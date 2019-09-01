@@ -163,13 +163,30 @@ void manager_worker()
     uint8_t *spacket = malloc(sizeof(struct vln_packet_header) +
                               sizeof(struct vln_connect_payload));
     struct vln_packet_header *sheader = (struct vln_packet_header *)spacket;
+
     sheader->type = CONNECT;
     sheader->payload_length = htonl(sizeof(struct vln_connect_payload));
 
     struct vln_connect_payload *spayload =
-        spacket + sizeof(struct vln_packet_header);
-    strcpy(spayload->network_name, "1111111111");
-    strcpy(spayload->network_password, "1111111111");
+        (struct vln_connect_payload *)PACKET_PAYLOAD(spacket);
+
+    strcpy(spayload->network_name, "222222222");
+    strcpy(spayload->network_password, "222222222");
+
+    // creat
+    // uint8_t *spacket = malloc(sizeof(struct vln_packet_header) +
+    //                           sizeof(struct vln_create_payload));
+    // struct vln_packet_header *sheader = (struct vln_packet_header *)spacket;
+
+    // sheader->type = CREATE;
+    // sheader->payload_length = htonl(sizeof(struct vln_create_payload));
+
+    // struct vln_create_payload *spayload =
+    //     (struct vln_create_payload *)PACKET_PAYLOAD(spacket);
+    // strcpy(spayload->addres, "198.168.7.0");
+    // strcpy(spayload->bit, "28");
+    // strcpy(spayload->network_name, "222222222");
+    // strcpy(spayload->network_password, "222222222");
 
     if (send_wrap(tcpwrapper, (void *)spacket,
                   sizeof(struct vln_packet_header) +
@@ -273,6 +290,16 @@ void manager_worker()
                 // TODO
             }
             // router_remove_connection(router, ntohl(rpayload.vaddr));
+            break;
+        }
+        case ERROR: {
+            printf("ERROR Received\n");
+            struct vln_error_payload rpayload;
+            if (recv_wrap(tcpwrapper, (void *)&rpayload,
+                          sizeof(struct vln_error_payload)) != 0) {
+                // TODO
+            }
+            printf("error: %d\n", rpayload.type);
             break;
         }
         default:

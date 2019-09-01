@@ -48,14 +48,20 @@ int select_all_network(sqlite3 *db, int (*f)(void *, int, char **, char **))
     return 0;
 }
 
-int insert(sqlite3 *db)
+int insert_new_network(sqlite3 *db, char *address, char *bits, char *name,
+                       char *password)
 {
     int rc;
-    char *sql;
+    // char *sql;
     char *zErrMsg = 0;
+    char sql[200];
+    sprintf(sql,
+            "INSERT INTO network (Address,bits,name,password) VALUES ('%s', "
+            "'%s', '%s', '%s');",
+            address, bits, name, password);
     /* Create SQL statement */ // Address bits name password
-    sql = "INSERT INTO network (Address,bits,name,password) "
-          "VALUES ('10.1.1.0', '28', '1111111111', '1111111111' ); ";
+    // sql = "INSERT INTO network (Address,bits,name,password) VALUES
+    // ('10.1.1.0', '28', '1111111111', '1111111111' ); ";
 
     /* Execute SQL statement */
     rc = sqlite3_exec(db, sql, callback, 0, &zErrMsg);

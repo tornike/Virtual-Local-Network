@@ -168,6 +168,24 @@ uint32_t get_available_address(struct vln_network *net)
     return 0;
 }
 
+int send_error(vln_packet_type type, struct tcpwrapper *tcpwrapper)
+{
+    uint8_t serror[sizeof(struct vln_packet_header) +
+                   sizeof(struct vln_error_payload)];
+    struct vln_packet_header *sheader = (struct vln_packet_header *)serror;
+    sheader->payload_length = htonl(sizeof(struct vln_error_payload));
+    sheader->type = ERROR;
+    struct vln_error_payload *spayload =
+        (struct vln_error_payload *)PACKET_PAYLOAD(serror);
+    spayload->type = type;
+
+    if (send_wrap(tcpwrapper, (void *)serror, sizeof(serror)) != 0) {
+        printf("error send_wrap %d\n", type);
+    } else {
+        printf("send_wrap %d\n", type);
+    }
+}
+
 void *manager_worker(void *arg)
 {
     int sockfd = (int)arg;
@@ -191,10 +209,10 @@ void *manager_worker(void *arg)
     struct vln_packet_header rpacket;
 
     do {
+
         if (recv_wrap(tcpwrapper, (void *)&rpacket,
                       sizeof(struct vln_packet_header)) != 0) {
             printf("Connection Lost\n");
-            break;
         }
         if (rpacket.type == CONNECT) {
             struct vln_connect_payload rpayload;
@@ -204,25 +222,66 @@ void *manager_worker(void *arg)
             char *name = network_is_exists(_db, rpayload.network_name,
                                            rpayload.network_password);
             if (name == NULL) {
-                // break; // TODO RETURN
+                send_error(NAME_OR_PASSWOR, tcpwrapper);
                 printf("name is null\n");
+                return NULL;
             }
             pthread_rwlock_rdlock(&_vln_network_lock);
             HASH_FIND_STR(_networks, name, curr_net);
             pthread_rwlock_unlock(&_vln_network_lock);
             if (curr_net == NULL) {
+                send_error(NETWORK_NOT_EXISTS, tcpwrapper);
                 printf("curr_net is null\n");
+                return NULL;
             }
+        } else if (rpacket.type == CREATE) {
+            // DOTO
+            struct vln_create_payload rpayload;
+            if (recv_wrap(tcpwrapper, (void *)&rpayload,
+                          ntohl(rpacket.payload_length)))
+                printf("CONNECT error recv_wrap\n");
+            if (insert_new_network(_db, rpayload.addres, rpayload.bit,
+                                   rpayload.network_name,
+                                   rpayload.network_password) == -1) {
+
+                send_error(INSERT_ERROR, tcpwrapper);
+                printf("INSERT error\n");
+                return NULL;
+            }
+            char argv1[16];
+            char argv2[16];
+            char argv3[16];
+
+            strcpy(argv1, rpayload.addres);
+            strcpy(argv2, rpayload.bit);
+            strcpy(argv3, rpayload.network_name);
+
+            int argc = 4;
+            char *argv[argc];
+            argv[1] = argv1;
+            argv[2] = argv2;
+            argv[3] = argv3;
+            create_network(NULL, argc, argv, NULL);
+            pthread_rwlock_rdlock(&_vln_network_lock);
+            HASH_FIND_STR(_networks, rpayload.network_name, curr_net);
+            pthread_rwlock_unlock(&_vln_network_lock);
+            if (curr_net == NULL) {
+
+                send_error(NETWORK_NOT_EXISTS, tcpwrapper);
+                printf("new_curr_net is null\n");
+                return NULL;
+            }
+
         } else {
+
+            send_error(UNKNOWN_PACKET_TYPE, tcpwrapper);
             printf("ERROR: Unknown Packet Type %d\n", rpacket.type);
-            // break; // TODO RETURN
+            return NULL;
+
+            // TODO RETURN
         }
     } while (0);
     //===============AUTHENTIFICATION============
-    // char *name = "1111111111";
-    // pthread_rwlock_rdlock(&_vln_network_lock);
-    // HASH_FIND_STR(_networks, name, curr_net);
-    // pthread_rwlock_unlock(&_vln_network_lock);
 
     // struct vln_network *curr_net = _networks; // find authorized network;
     struct server_connection *scon = malloc(sizeof(struct server_connection));

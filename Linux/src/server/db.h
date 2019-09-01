@@ -17,6 +17,7 @@ int create_table(sqlite3 *db);
 
 int db_close(sqlite3 *db);
 
-int insert(sqlite3 *db);
+int insert_new_network(sqlite3 *db, char *address, char *bits, char *name,
+                       char *password);
 
 #endif

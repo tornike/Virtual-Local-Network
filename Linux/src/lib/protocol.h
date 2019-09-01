@@ -18,6 +18,12 @@
 #define ROOTNODE 13
 #define UPDATES 14
 #define UPDATEDIS 15
+#define ERROR 17
+#define NETWORK_NOT_EXISTS 18
+#define NAME_OR_PASSWOR 19
+#define UNKNOWN_PACKET_TYPE 20
+#define CREATE 21
+#define INSERT_ERROR 22
 
 /* Flags */
 #define VLN_VIRTUALADDR 128
@@ -28,6 +34,10 @@ typedef uint8_t vln_packet_type;
 struct vln_packet_header {
     vln_packet_type type;
     uint32_t payload_length; // TODO endian
+} __attribute__((packed));
+
+struct vln_error_payload {
+    vln_packet_type type;
 } __attribute__((packed));
 
 /// vadr real adry real port
@@ -95,6 +105,14 @@ struct vln_rootnode_payload {
 struct vln_connect_payload { /* Connect packet payload for client */
     char network_name[16];
     char network_password[16];
+} __attribute__((packed));
+
+struct vln_create_payload {
+    char network_name[16];
+    char network_password[16];
+    char addres[16];
+    char bit[2];
+    // DOTO
 } __attribute__((packed));
 
 struct vln_data_packet_header {
