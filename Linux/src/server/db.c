@@ -102,7 +102,8 @@ void *network_is_exists(sqlite3 *db, char *name, char *password)
 
     if (step == SQLITE_ROW) {
         return_value = malloc(16);
-        strcpy(return_value, sqlite3_column_text(data, 3)); // NAME
+        strcpy(return_value,
+               (const char *)sqlite3_column_text(data, 3)); // NAME
 
     } else {
         printf("No record found!\n");

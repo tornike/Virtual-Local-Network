@@ -21,6 +21,9 @@
 
 #define BACKLOG 10
 
+//===HEADER
+int create_network(void *NotUsed, int argc, char **argv, char **azColName);
+
 struct ipaddr {
     char addr[INET_ADDRSTRLEN];
     struct ipaddr *next;
@@ -168,7 +171,7 @@ uint32_t get_available_address(struct vln_network *net)
     return 0;
 }
 
-int send_error(vln_packet_type type, struct tcpwrapper *tcpwrapper)
+void send_error(vln_packet_type type, struct tcpwrapper *tcpwrapper)
 {
     uint8_t serror[sizeof(struct vln_packet_header) +
                    sizeof(struct vln_error_payload)];
@@ -490,6 +493,7 @@ int create_network(void *NotUsed, int argc, char **argv, char **azColName)
     HASH_ADD_STR(_networks, network_name, new_net);
     pthread_rwlock_unlock(&_vln_network_lock);
     // _networks = new_net;
+    return 0;
 }
 
 int main(int argc, char **argv)
