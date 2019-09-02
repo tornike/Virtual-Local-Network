@@ -20,7 +20,7 @@ struct router_action {
 /* Only buffer and used_size should be changed by external classes. */
 struct router_buffer_slot {
     uint8_t buffer[SLOT_SIZE];
-    size_t used_size;
+    ssize_t used_size;
 
     struct router_buffer_slot *next;
     struct router_buffer_slot *prev;
@@ -32,13 +32,14 @@ struct router *router_create(uint32_t vaddr, uint32_t net_addr,
                              uint32_t broad_addr, int sockfd,
                              struct taskexecutor *taskexecutor);
 
+void router_stop(struct router *);
+
 void router_destroy(struct router *);
 
 void router_try_connection(struct router *, uint32_t vaddr, uint32_t raddr,
                            uint16_t rport);
 
-void router_remove_connection(struct router *, uint32_t vaddr, uint32_t raddr,
-                              uint16_t rport);
+void router_remove_connection(struct router *, uint32_t vaddr);
 
 struct router_buffer_slot *router_get_free_slot(struct router *);
 
