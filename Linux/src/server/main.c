@@ -1,3 +1,5 @@
+#define _GNU_SOURCE
+
 #include <arpa/inet.h>
 #include <assert.h>
 #include <math.h>
@@ -21,14 +23,8 @@
 
 #define BACKLOG 10
 
-//===HEADER
+/* Prototypes */
 int create_network(void *NotUsed, int argc, char **argv, char **azColName);
-
-struct ipaddr {
-    char addr[INET_ADDRSTRLEN];
-    struct ipaddr *next;
-    struct ipaddr *prev;
-};
 
 struct server_connection {
     uint32_t vaddr;
@@ -152,6 +148,7 @@ void router_listener(void *args, struct task_info *tinfo)
         if (curr_con != NULL) {
             shutdown(curr_con->sockfd, SHUT_RDWR);
         }
+        curr_con->vaddr = 0;
         pthread_mutex_unlock(&net->connections_lock);
         free(act);
     } else {
@@ -232,7 +229,7 @@ void *manager_worker(void *arg)
             pthread_rwlock_rdlock(&_vln_network_lock);
             HASH_FIND_STR(_networks, name, curr_net);
             pthread_rwlock_unlock(&_vln_network_lock);
-            if (curr_net == NULL) {
+            if (curr_net == NULL) { // TODO if network deletes not correct.
                 send_error(NETWORK_NOT_EXISTS, tcpwrapper);
                 printf("curr_net is null\n");
                 return NULL;
@@ -280,13 +277,11 @@ void *manager_worker(void *arg)
             send_error(UNKNOWN_PACKET_TYPE, tcpwrapper);
             printf("ERROR: Unknown Packet Type %d\n", rpacket.type);
             return NULL;
-
-            // TODO RETURN
         }
     } while (0);
+
     //===============AUTHENTIFICATION============
 
-    // struct vln_network *curr_net = _networks; // find authorized network;
     struct server_connection *scon = malloc(sizeof(struct server_connection));
     scon->sockfd = sockfd;
     scon->tcpwrapper = tcpwrapper;
@@ -296,15 +291,15 @@ void *manager_worker(void *arg)
     HASH_ADD_INT(curr_net->connections, vaddr, scon);
     pthread_mutex_unlock(&curr_net->connections_lock);
 
-    //==============SEND INITR===============
+    //==============SEND INIT===============
     do {
         uint8_t spacket[sizeof(struct vln_packet_header) +
-                        sizeof(struct vln_initr_payload)];
+                        sizeof(struct vln_init_payload)];
         struct vln_packet_header *sheader = (struct vln_packet_header *)spacket;
-        struct vln_initr_payload *spayload =
-            (struct vln_initr_payload *)PACKET_PAYLOAD(spacket);
-        sheader->type = INITR;
-        sheader->payload_length = htonl(sizeof(struct vln_initr_payload));
+        struct vln_init_payload *spayload =
+            (struct vln_init_payload *)PACKET_PAYLOAD(spacket);
+        sheader->type = INIT;
+        sheader->payload_length = htonl(sizeof(struct vln_init_payload));
         spayload->vaddr = htonl(scon->vaddr);
         spayload->maskaddr = htonl(curr_net->mask_address);
         spayload->broadaddr = htonl(curr_net->broadcast_address);
@@ -312,7 +307,7 @@ void *manager_worker(void *arg)
         if (send_wrap(tcpwrapper, (void *)spacket, sizeof(spacket)) != 0) {
             printf("Send Failed\n");
         } else {
-            printf("INITR Sent\n");
+            printf("INIT Sent\n");
         }
     } while (0);
     //==========================================
@@ -338,7 +333,6 @@ void *manager_worker(void *arg)
     } while (0);
     //=========================================
 
-    // struct vln_packet_header rpacket;
     while (1) {
         if (recv_wrap(scon->tcpwrapper, (void *)&rpacket,
                       sizeof(struct vln_packet_header)) != 0) {
@@ -356,11 +350,6 @@ void *manager_worker(void *arg)
             memcpy(spacket, &rpacket, sizeof(struct vln_packet_header));
             memcpy(PACKET_PAYLOAD(spacket), rpayload,
                    ntohl(rpacket.payload_length));
-            // task_info = malloc(sizeof(struct task_info));
-            // task_info->args = spacket;
-            // task_info->operation = UPDATE;
-
-            // taskexecutor_add_task(taskexecutor, task_info);
         } else {
             printf("ERROR: Unknown Packet Type\n");
             break;
@@ -372,8 +361,7 @@ void *manager_worker(void *arg)
     pthread_mutex_unlock(&curr_net->connections_lock);
 
     printf("removing connection\n");
-    router_remove_connection(curr_net->router, scon->vaddr, scon->udp_addr,
-                             scon->udp_port);
+    router_remove_connection(curr_net->router, scon->vaddr);
 
     //==============SEND PeerDisconnected===============
     do {
@@ -404,16 +392,17 @@ void *manager_worker(void *arg)
 
     tcpwrapper_destroy(scon->tcpwrapper);
     free(scon);
+
     return NULL;
 }
 
-void recv_connections(int port)
+void recv_connections(int port) // TODO
 {
     int sfd, cfd;
     struct sockaddr_in s_addr, c_addr;
     socklen_t sockaddr_in_size = sizeof(struct sockaddr_in);
 
-    sfd = socket(AF_INET, SOCK_STREAM, 0); // TODO: error handling.
+    sfd = socket(AF_INET, SOCK_STREAM, 0);
 
     int optval = 1;
     setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(int));
@@ -421,34 +410,15 @@ void recv_connections(int port)
     s_addr.sin_port = htons(port);
     s_addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
-    bind(sfd, (struct sockaddr *)&s_addr,
-         sizeof(struct sockaddr_in)); // TODO: error handling.
-    listen(sfd, BACKLOG); // TODO: error handling.
+    bind(sfd, (struct sockaddr *)&s_addr, sizeof(struct sockaddr_in));
+    listen(sfd, BACKLOG);
 
     while (1) {
-        cfd = accept(sfd, (struct sockaddr *)&c_addr,
-                     &sockaddr_in_size); // TODO: error handling.
+        cfd = accept(sfd, (struct sockaddr *)&c_addr, &sockaddr_in_size);
 
         pthread_t t;
         pthread_create(&t, NULL, manager_worker, (void *)cfd);
     }
-}
-
-int init(char *network_addr, char *network_bits)
-{
-    char *rip = "34.65.27.69";
-    // TODO
-    inet_pton(AF_INET, rip, &_rserverip);
-    _rserverip = ntohl(_rserverip);
-
-    // char server_addr[INET_ADDRSTRLEN];
-    // // uint32_t network_addrb = htobe32(network_addr_int);
-    // inet_ntop(AF_INET, &_network_address, server_addr, INET_ADDRSTRLEN);
-    // printf("SERVER ADDR: %s %d\n", server_addr, htonl(_network_address +
-    // 1)); pthread_mutex_init(&_connectionsm, NULL); printf("Router
-    // Initialized!\n");
-
-    return 0;
 }
 
 int create_network(void *NotUsed, int argc, char **argv, char **azColName)
@@ -492,7 +462,6 @@ int create_network(void *NotUsed, int argc, char **argv, char **azColName)
     pthread_rwlock_wrlock(&_vln_network_lock);
     HASH_ADD_STR(_networks, network_name, new_net);
     pthread_rwlock_unlock(&_vln_network_lock);
-    // _networks = new_net;
     return 0;
 }
 
@@ -502,56 +471,11 @@ int main(int argc, char **argv)
     // TODO
     inet_pton(AF_INET, rip, &_rserverip);
     _rserverip = ntohl(_rserverip);
-    // if (argc < 3) {
-    //     printf("Invalid Arguments!\n");
-    //     return EXIT_FAILURE;
-    // }
 
-    // init(argv[1], argv[2]);
-
-    // //=================Create Network================
-    // struct vln_network *new_net = malloc(sizeof(struct vln_network));
-    // inet_pton(AF_INET, argv[1], &new_net->address);
-    // new_net->address = ntohl(new_net->address);
-    // new_net->network_bits = atoi(argv[2]);
-    // new_net->broadcast_address =
-    //     new_net->address + (uint32_t)pow(2, 32 - new_net->network_bits) - 1;
-    // new_net->mask_address = ((uint32_t)pow(2, new_net->network_bits) - 1)
-    //                         << (32 - new_net->network_bits);
-
-    // new_net->connections = NULL;
-    // pthread_mutex_init(&new_net->connections_lock, NULL);
-
-    // socklen_t socklen = sizeof(struct sockaddr_in);
-    // struct sockaddr_in udp_addr;
-    // memset(&udp_addr, 0, socklen);
-    // udp_addr.sin_family = AF_INET;
-    // udp_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    // udp_addr.sin_port = 0;
-
-    // int router_sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-    // bind(router_sockfd, (struct sockaddr *)&udp_addr,
-    //      sizeof(struct sockaddr_in));
-    // getsockname(router_sockfd, (struct sockaddr *)&udp_addr, &socklen);
-
-    // struct taskexecutor *rlistener =
-    //     taskexecutor_create((Handler)&router_listener, new_net);
-    // taskexecutor_start(rlistener);
-
-    // new_net->router_addr = _rserverip;
-    // new_net->router_port = ntohs(udp_addr.sin_port);
-    // new_net->router =
-    //     router_create(new_net->address, new_net->address,
-    //                   new_net->broadcast_address, router_sockfd, rlistener);
-    // //=================Create Network================
-
-    // _networks = new_net;
     pthread_rwlock_init(&_vln_network_lock, NULL);
     _db = get_db();
     create_table(_db);
-    // // insert(_db);
-    // sleep(3);
-    // printf("GO!\n");
+
     select_all_network(_db, create_network);
     recv_connections(33507);
 

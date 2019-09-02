@@ -12,6 +12,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/un.h>
 #include <unistd.h>
 
 #include "../connection.h"
@@ -20,6 +21,7 @@
 #include "../lib/tcpwrapper.h"
 #include "../lib/uthash.h"
 #include "../router.h"
+#include "starterprotocol.h"
 #include "vlnadapter.h"
 
 // TODO!!!!!!!
@@ -29,7 +31,7 @@
 //===========GLOBALS===========
 char *_server_addr = "34.65.27.69"; // Must be changed.
 int _server_port_temp = 33507; // Must be changed.
-struct tunnel_interface *_interfeace;
+struct tunnel_interface *_interface;
 //===========GLOBALS===========
 
 void router_listener(void *args, struct task_info *tinfo)
@@ -62,7 +64,7 @@ void *recv_thread(void *arg)
         // printf("Received from V %s %s %d bytes\n", saddr, daddr,
         //        slot->used_size - sizeof(struct vln_data_packet_header));
 
-        write(_interfeace->fd,
+        write(_interface->fd,
               slot->buffer + sizeof(struct vln_data_packet_header),
               slot->used_size - sizeof(struct vln_data_packet_header));
 
@@ -79,7 +81,7 @@ void *send_thread(void *arg)
     while (1) {
         slot = router_get_free_slot(router);
         slot->used_size =
-            read(_interfeace->fd,
+            read(_interface->fd,
                  slot->buffer + sizeof(struct vln_data_packet_header),
                  SLOT_SIZE - sizeof(struct vln_data_packet_header));
         slot->used_size += sizeof(struct vln_data_packet_header);
@@ -90,42 +92,43 @@ void *send_thread(void *arg)
     return NULL;
 }
 
-void manager_sender_handler(void *args, struct task_info *task_info)
-{
-    struct tcpwrapper *tcpwrapper = (struct tcpwrapper *)args;
+// if some code needed.
+// void manager_sender_handler(void *args, struct task_info *task_info)
+// {
+//     struct tcpwrapper *tcpwrapper = (struct tcpwrapper *)args;
 
-    struct vln_packet_header *spacket;
-    switch (task_info->operation) {
-    case INIT: {
-        printf("Send INIT\n");
-        spacket = (struct vln_packet_header *)task_info->args;
-        if (send_wrap(tcpwrapper, (void *)spacket,
-                      sizeof(struct vln_packet_header) +
-                          ntohl(spacket->payload_length)) != 0) {
-            printf("error send_wrap INIT\n");
-        } else {
-            printf("send_wrap INIT\n");
-        }
-        free(spacket);
-        break;
-    }
-    case UPDATES: {
-        spacket = (struct vln_packet_header *)task_info->args;
-        if (send_wrap(tcpwrapper, (void *)task_info->args,
-                      sizeof(struct vln_packet_header) +
-                          ntohl(spacket->payload_length)) != 0) {
-            printf("error send_wrap INIT\n");
-        } else {
-            printf("send_wrap INIT\n");
-        }
-        free(spacket);
-        break;
-    }
-    default:
-        printf("ERROR: Unknown Packet Type\n");
-        break;
-    }
-}
+//     struct vln_packet_header *spacket;
+//     switch (task_info->operation) {
+//     case INIT: {
+//         printf("Send INIT\n");
+//         spacket = (struct vln_packet_header *)task_info->args;
+//         if (send_wrap(tcpwrapper, (void *)spacket,
+//                       sizeof(struct vln_packet_header) +
+//                           ntohl(spacket->payload_length)) != 0) {
+//             printf("error send_wrap INIT\n");
+//         } else {
+//             printf("send_wrap INIT\n");
+//         }
+//         free(spacket);
+//         break;
+//     }
+//     case UPDATES: {
+//         spacket = (struct vln_packet_header *)task_info->args;
+//         if (send_wrap(tcpwrapper, (void *)task_info->args,
+//                       sizeof(struct vln_packet_header) +
+//                           ntohl(spacket->payload_length)) != 0) {
+//             printf("error send_wrap INIT\n");
+//         } else {
+//             printf("send_wrap INIT\n");
+//         }
+//         free(spacket);
+//         break;
+//     }
+//     default:
+//         printf("ERROR: Unknown Packet Type\n");
+//         break;
+//     }
+// }
 
 void manager_worker()
 {
@@ -160,8 +163,8 @@ void manager_worker()
 
     taskexecutor_start(rlistener);
 
-    uint8_t *spacket = malloc(sizeof(struct vln_packet_header) +
-                              sizeof(struct vln_connect_payload));
+    uint8_t spacket[sizeof(struct vln_packet_header) +
+                    sizeof(struct vln_connect_payload)];
     struct vln_packet_header *sheader = (struct vln_packet_header *)spacket;
 
     sheader->type = CONNECT;
@@ -170,8 +173,8 @@ void manager_worker()
     struct vln_connect_payload *spayload =
         (struct vln_connect_payload *)PACKET_PAYLOAD(spacket);
 
-    strcpy(spayload->network_name, "222222222");
-    strcpy(spayload->network_password, "222222222");
+    strcpy(spayload->network_name, "22222222");
+    strcpy(spayload->network_password, "22222222");
 
     // creat
     // uint8_t *spacket = malloc(sizeof(struct vln_packet_header) +
@@ -217,12 +220,12 @@ void manager_worker()
             // //                       rpaylod.raddr, rpaylod.rport);
             break;
         }
-        case INITR: {
-            printf("Received INITR\n");
-            struct vln_initr_payload rpayload;
+        case INIT: {
+            printf("Received INIT\n");
+            struct vln_init_payload rpayload;
             if (recv_wrap(tcpwrapper, (void *)&rpayload,
-                          sizeof(struct vln_initr_payload)) != 0)
-                printf("error recv_wrap INITR \n");
+                          sizeof(struct vln_init_payload)) != 0)
+                printf("error recv_wrap INIT \n");
 
             if (tunnel_interface_set_network(rpayload.vaddr, rpayload.maskaddr,
                                              rpayload.broadaddr) == -1) {
@@ -312,13 +315,121 @@ void manager_worker()
     printf("client died\n");
 }
 
+int send_starter_respons(int fd, starter_packet_type type, char *respons)
+{
+    uint8_t *spacket[sizeof(struct starter_packet_header) +
+                     sizeof(struct starter_respons_payload)];
+    struct starter_packet_header *sheader =
+        (struct starter_packet_header *)spacket;
+    sheader->type = type;
+    sheader->payload_length = sizeof(struct starter_respons_payload);
+    struct starter_respons_payload *spaload =
+        (struct starter_respons_payload *)spacket +
+        sizeof(struct starter_packet_header);
+    strcpy(spaload->respons_text, respons);
+    return send(fd, spacket, sizeof(spacket), 0);
+}
+
+int starter_server()
+{
+    int server_fd, new_socket;
+    struct sockaddr_un address;
+    char buffer[BUFFER_SIZE];
+
+    // Creating socket file descriptor
+    if ((server_fd = socket(AF_UNIX, SOCK_STREAM, 0)) == 0) {
+        perror("socket failed");
+        exit(EXIT_FAILURE);
+    }
+
+    memset(&address, 0, sizeof(address));
+    address.sun_family = AF_UNIX;
+    strcpy(address.sun_path, PATH);
+
+    if (bind(server_fd, (struct sockaddr *)&address,
+             sizeof(struct sockaddr_un)) < 0) {
+        perror("bind failed");
+        exit(EXIT_FAILURE);
+    }
+    if (listen(server_fd, 1) < 0) {
+        perror("listen");
+        exit(EXIT_FAILURE);
+    }
+    int aqtive = 1;
+    while (aqtive) {
+        if ((new_socket = accept(server_fd, NULL, NULL)) < 1) {
+            perror("accept");
+            exit(EXIT_FAILURE);
+        }
+        while (1) {
+            memset(buffer, 0, BUFFER_SIZE);
+            int r = 0;
+            if ((r = recv(new_socket, buffer, BUFFER_SIZE, 0)) < 1) {
+                // printf("%d %s\n", r, strerror(errno));
+                break;
+            }
+            // struct starter_packet_header *user =
+            //     (struct starter_packet_header *)buffer;
+            // printf("%d\n", (int)user->type);
+            // if (send(new_socket, done, strlen(done), 0) < 1)
+            //     break;
+            struct starter_packet_header *rheader =
+                (struct starter_packet_header *)buffer;
+
+            if (rheader->type == STARTER_CREATE) {
+                struct starter_create_payload *rpayload =
+                    (struct starter_create_payload
+                         *)(buffer + sizeof(struct starter_packet_header));
+                printf("name: %s\n", rpayload->networck_name);
+                printf("password: %s\n", rpayload->networck_password);
+                printf("subnet: %s\n", rpayload->subnet);
+
+                send_starter_respons(new_socket, STARTER_DONE,
+                                     "STARTER_CREATE");
+
+            } else if (rheader->type == STARTER_CONNECT) {
+                struct starter_connect_payload *rpayload =
+                    (struct starter_connect_payload
+                         *)(buffer + sizeof(struct starter_packet_header));
+                printf("name: %s\n", rpayload->networck_name);
+                printf("password: %s\n", rpayload->networck_password);
+
+                send_starter_respons(new_socket, STARTER_DONE,
+                                     "STARTER_CONNECT");
+            } else if (rheader->type == STARTER_DISCONNECT) {
+                printf("Discnnect\n");
+                if (_interface != NULL) {
+                    // TODO
+                }
+                send_starter_respons(new_socket, STARTER_DONE,
+                                     "STARTER_DISCONNECT");
+            } else if (rheader->type == STARTER_STOP) {
+                printf("Stop\n");
+                aqtive = 0;
+                send_starter_respons(new_socket, STARTER_DONE, "STARTER_STOP");
+            } else {
+                printf("ERROR: Unknown Packet Type Send %d\n", rheader->type);
+                send_starter_respons(new_socket, STARTER_ERROR,
+                                     "ERROR: Unknown Packet Type Send");
+                break;
+            }
+        }
+        close(new_socket);
+    }
+    close(server_fd);
+    unlink(PATH);
+    return 0;
+}
 int main(int argc, char **argv)
 {
-    _interfeace = tunnel_interface_create(IFF_TUN | IFF_NO_PI);
+    _interface = tunnel_interface_create(IFF_TUN | IFF_NO_PI);
 
-    if (_interfeace != NULL) {
+    if (_interface != NULL) {
         manager_worker();
     }
+    // starter_server();
+
+    /// yvelafris washlaa dasaweri
 
     pthread_exit(NULL);
     return 0;

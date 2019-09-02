@@ -5,9 +5,6 @@
 #include <stdint.h>
 
 #define INIT 1
-#define INITR 2
-#define HOSTS 3
-#define HOSTSR 4
 #define CONNECT 5 /* Request For Connect */
 
 #define ADDR 8
@@ -63,7 +60,7 @@ struct vln_updatedis_payload {
     uint32_t vaddr;
 } __attribute__((packed));
 
-struct vln_initr_payload {
+struct vln_init_payload {
     uint32_t vaddr;
     uint32_t maskaddr;
     uint32_t broadaddr;

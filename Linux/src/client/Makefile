@@ -2,7 +2,7 @@ CC = gcc
 CFLAGS_RELEASE = -Wall -c
 CFLAGS_DEBUG = -Wall -g -c
 LIBS = -lpthread
-HEADERS = ../lib/tcpwrapper.h ../lib/protocol.h ../router.h ../lib/taskexecutor.h vlnadapter.h
+HEADERS = ../lib/tcpwrapper.h ../lib/protocol.h ../router.h ../lib/taskexecutor.h vlnadapter.h starterprotocol.h
 
 OBJECT_DIR = ../../build/client/
 
