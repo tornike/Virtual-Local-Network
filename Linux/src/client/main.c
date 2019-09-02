@@ -32,7 +32,15 @@
 char *_server_addr = "34.65.27.69"; // Must be changed.
 int _server_port_temp = 33507; // Must be changed.
 struct tunnel_interface *_interface;
+
+pthread_t _sender;
+pthread_t _receiver;
 //===========GLOBALS===========
+
+struct cleanup_handler_arg {
+    struct router *router;
+    struct router_buffer_slot *slot;
+};
 
 void router_listener(void *args, struct task_info *tinfo)
 {
@@ -42,16 +50,26 @@ void router_listener(void *args, struct task_info *tinfo)
     printf("Peers Changed\n");
 }
 
+static void cleanup_handler(void *arg)
+{
+    struct cleanup_handler_arg *cha = (struct cleanup_handler_arg *)arg;
+    router_add_free_slot(cha->router, cha->slot);
+    free(cha);
+    printf("Cleanup Done\n");
+}
+
 void *recv_thread(void *arg)
 {
-    struct router *router = (struct router *)arg;
-    // TODO
-    struct sockaddr_in raddr;
-    memset(&raddr, 0, sizeof(struct sockaddr_in));
+    pthread_setcanceltype(PTHREAD_CANCEL_DEFERRED, NULL);
 
-    struct router_buffer_slot *slot;
+    struct cleanup_handler_arg *cha =
+        malloc(sizeof(struct cleanup_handler_arg));
+    cha->router = (struct router *)arg;
     while (1) {
-        slot = router_receive(router);
+        cha->slot = router_receive(cha->router); // waiting point
+
+        if (cha->slot == NULL)
+            break;
 
         // void *buff = DATA_PACKET_PAYLOAD(slot->buffer);
         // char saddr[INET_ADDRSTRLEN];
@@ -64,31 +82,55 @@ void *recv_thread(void *arg)
         // printf("Received from V %s %s %d bytes\n", saddr, daddr,
         //        slot->used_size - sizeof(struct vln_data_packet_header));
 
-        write(_interface->fd,
-              slot->buffer + sizeof(struct vln_data_packet_header),
-              slot->used_size - sizeof(struct vln_data_packet_header));
+        pthread_cleanup_push(cleanup_handler, cha);
 
-        router_add_free_slot(router, slot);
+        write(_interface->fd,
+              cha->slot->buffer + sizeof(struct vln_data_packet_header),
+              cha->slot->used_size - sizeof(struct vln_data_packet_header));
+
+        pthread_cleanup_pop(0);
+
+        router_add_free_slot(cha->router, cha->slot);
     }
+    printf("Recv Thread Returns\n");
+    free(cha);
     return NULL;
 }
 
 void *send_thread(void *arg)
 {
-    struct router *router = (struct router *)arg;
-    // TODO
-    struct router_buffer_slot *slot;
-    while (1) {
-        slot = router_get_free_slot(router);
-        slot->used_size =
-            read(_interface->fd,
-                 slot->buffer + sizeof(struct vln_data_packet_header),
-                 SLOT_SIZE - sizeof(struct vln_data_packet_header));
-        slot->used_size += sizeof(struct vln_data_packet_header);
-        ((struct vln_data_packet_header *)slot->buffer)->type = DATA;
-        router_send(router, slot);
-    }
+    pthread_setcanceltype(PTHREAD_CANCEL_DEFERRED, NULL);
 
+    struct cleanup_handler_arg *cha =
+        malloc(sizeof(struct cleanup_handler_arg));
+    cha->router = (struct router *)arg;
+    while (1) {
+        cha->slot = router_get_free_slot(cha->router); // waiting point
+
+        if (cha->slot == NULL)
+            break;
+
+        pthread_cleanup_push(cleanup_handler, cha);
+
+        cha->slot->used_size = read(
+            _interface->fd,
+            cha->slot->buffer + sizeof(struct vln_data_packet_header),
+            SLOT_SIZE -
+                sizeof(struct vln_data_packet_header)); // Cancelation point.
+
+        pthread_cleanup_pop(0);
+
+        if (cha->slot->used_size < 1) {
+            router_add_free_slot(cha->router, cha->slot);
+            break;
+        }
+
+        cha->slot->used_size += sizeof(struct vln_data_packet_header);
+        ((struct vln_data_packet_header *)cha->slot->buffer)->type = DATA;
+        router_send(cha->router, cha->slot);
+    }
+    printf("Send Thread Returns\n");
+    free(cha);
     return NULL;
 }
 
@@ -241,9 +283,8 @@ void manager_worker()
                 ntohl(rpayload.vaddr) & ntohl(rpayload.maskaddr),
                 ntohl(rpayload.broadaddr), router_sockfd, rlistener);
 
-            pthread_t rt, st;
-            pthread_create(&rt, NULL, recv_thread, (void *)router);
-            pthread_create(&st, NULL, send_thread, (void *)router);
+            pthread_create(&_receiver, NULL, recv_thread, (void *)router);
+            pthread_create(&_sender, NULL, send_thread, (void *)router);
 
             break;
         }
@@ -278,8 +319,9 @@ void manager_worker()
                    ntohl(rpayload.dvaddr), ntohl(rpayload.vaddr),
                    ntohl(rpayload.raddr), ntohs(rpayload.rport));
 
-            router_try_connection(router, ntohl(rpayload.vaddr),
-                                  ntohl(rpayload.raddr), ntohs(rpayload.rport));
+            // router_try_connection(router, ntohl(rpayload.vaddr),
+            //                       ntohl(rpayload.raddr),
+            //                       ntohs(rpayload.rport));
 
             router_setup_pyramid(router, ntohl(rpayload.vaddr));
 
@@ -310,7 +352,22 @@ void manager_worker()
             break;
         }
     }
+
     tcpwrapper_destroy(tcpwrapper);
+
+    router_stop(router);
+    printf("Router stopped\n");
+
+    pthread_cancel(_sender);
+    pthread_cancel(_receiver);
+
+    pthread_join(_receiver, NULL);
+    printf("Client Receiver died\n");
+    pthread_join(_sender, NULL);
+    printf("Client Sender died\n");
+
+    router_destroy(router);
+
     // destroy router
     printf("client died\n");
 }
