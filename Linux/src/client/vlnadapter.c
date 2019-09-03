@@ -16,53 +16,56 @@
 
 #include "vlnadapter.h"
 
-struct tunnel_interface *tunnel_interface_create(int flags)
+struct vln_adapter *vln_adapter_create(int flags)
 {
     int err, sfd;
     struct ifreq ifr;
-    struct tunnel_interface *interface;
-    if ((interface = malloc(sizeof(struct tunnel_interface))) == NULL) {
+    struct vln_adapter *adapter;
+    if ((adapter = malloc(sizeof(struct vln_adapter))) == NULL) {
         dprintf(STDERR_FILENO, "Router: Malloc Failed %s\n", strerror(errno));
-        return interface;
+        return adapter;
     };
     /* open the clone device */
-    if ((interface->fd = open("/dev/net/tun", O_RDWR)) < 0) {
+    if ((adapter->fd = open("/dev/net/tun", O_RDWR)) < 0) {
         dprintf(STDERR_FILENO,
-                "Creating newtork interface failed: \n Opening clone device "
+                "Creating newtork adapter failed: \n Opening clone device "
                 "failed: %s\n",
                 strerror(errno));
-        free(interface);
+        free(adapter);
         return NULL;
     }
+
+    memset(adapter->name, 0, 16);
+    strcpy(adapter->name, ADAPTER_NAME);
 
     memset(&ifr, 0, sizeof(struct ifreq));
 
     ifr.ifr_flags = flags;
 
-    strcpy(ifr.ifr_name, INTERFACE_NAME);
+    strcpy(ifr.ifr_name, adapter->name);
 
     /* try to create the device */
-    if ((err = ioctl(interface->fd, TUNSETIFF, (void *)&ifr)) < 0) {
+    if ((err = ioctl(adapter->fd, TUNSETIFF, (void *)&ifr)) < 0) {
         dprintf(STDERR_FILENO,
-                "Creating newtork interface failed: \n Creating device "
+                "Creating newtork adapter failed: \n Creating device "
                 "failed: %s\n",
                 strerror(errno));
-        free(interface);
+        free(adapter);
         return NULL;
     }
 
     if ((sfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
         dprintf(STDERR_FILENO,
-                "Creating newtork interface failed: \n Creating socket "
+                "Creating newtork adapter failed: \n Creating socket "
                 "failed: %s\n",
                 strerror(errno));
-        free(interface);
+        free(adapter);
         return NULL;
     }
 
     //------------------------
     if (ioctl(sfd, SIOCGIFFLAGS, &ifr) < 0) {
-        printf("Getting interface flags failed: %s\n", strerror(errno));
+        printf("Getting adapter flags failed: %s\n", strerror(errno));
     }
     printf("Flags %d\n", ifr.ifr_flags);
     //------------------------
@@ -70,28 +73,28 @@ struct tunnel_interface *tunnel_interface_create(int flags)
     ifr.ifr_flags = IFF_UP | IFF_RUNNING | IFF_NOARP | IFF_POINTOPOINT;
     if (ioctl(sfd, SIOCSIFFLAGS, &ifr) < 0) {
         dprintf(STDERR_FILENO,
-                "Creating newtork interface failed: \n Setting network "
-                "interface flags "
+                "Creating newtork adapter failed: \n Setting network "
+                "adapter flags "
                 "failed: %s\n",
                 strerror(errno));
         close(sfd);
-        free(interface);
+        free(adapter);
         return NULL;
     }
 
     close(sfd);
 
-    return interface;
+    return adapter;
 }
 
-int tunnel_interface_set_network(uint32_t vaddr, uint32_t maskaddr,
-                                 uint32_t broadaddr)
+int vln_adapter_set_network(struct vln_adapter *adapter, uint32_t vaddr,
+                            uint32_t maskaddr, uint32_t broadaddr)
 {
 
     struct sockaddr_in *addr;
     struct ifreq ifr;
 
-    strcpy(ifr.ifr_name, INTERFACE_NAME);
+    strcpy(ifr.ifr_name, adapter->name);
 
     addr = (struct sockaddr_in *)&ifr.ifr_addr;
     addr->sin_addr.s_addr = vaddr;
@@ -128,8 +131,8 @@ int tunnel_interface_set_network(uint32_t vaddr, uint32_t maskaddr,
     close(sfd);
     return 1;
 }
-void tunnel_interface_destroy(struct tunnel_interface *interface)
+void vln_adapter_destroy(struct vln_adapter *adapter)
 {
-    tunnel_interface_set_network(0, 0, 0);
-    close(interface->fd);
+    vln_adapter_set_network(adapter, 0, 0, 0);
+    close(adapter->fd);
 }

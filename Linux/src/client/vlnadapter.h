@@ -3,17 +3,18 @@
 
 #include <stdint.h>
 
-#define INTERFACE_NAME "testint1"
+#define ADAPTER_NAME "testint1"
 
-struct tunnel_interface {
+struct vln_adapter {
     int fd;
+    char name[16];
 };
 
-struct tunnel_interface *tunnel_interface_create(int flags);
+struct vln_adapter *vln_adapter_create(int flags);
 
-void tunnel_interface_destroy(struct tunnel_interface *);
+void vln_adapter_destroy(struct vln_adapter *);
 
-int tunnel_interface_set_network(uint32_t vaddr, uint32_t maskaddr,
-                                 uint32_t broadaddr);
+int vln_adapter_set_network(struct vln_adapter *adapter, uint32_t vaddr,
+                            uint32_t maskaddr, uint32_t broadaddr);
 
 #endif
