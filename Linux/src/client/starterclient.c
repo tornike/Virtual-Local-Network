@@ -76,7 +76,26 @@ void *get_create_payload(char const *argv[])
         return NULL;
     }
 
-    // TODO subnet check argv[4]
+    char addr[SUBNET_MAX_SIZE];
+    memset(addr, 0, SUBNET_MAX_SIZE);
+
+    strcpy(addr, argv[4]);
+    char delim[] = "/";
+    char *subnet = strtok(addr, delim);
+    char *bit = strtok(NULL, delim);
+    if (bit == NULL) {
+        printf("Subnet is incorrect\n");
+        return NULL;
+    }
+    int bit_check = atoi(bit);
+    uint32_t check_subnet;
+    if (!inet_pton(AF_INET, subnet, &check_subnet) ||
+        strcmp(".0", subnet + strlen(subnet) - 2) != 0 ||
+        strlen(argv[4]) > SUBNET_MAX_SIZE || strlen(bit) > 2 ||
+        bit_check < 27 || bit_check > 32) {
+        printf("Subnet is incorrect\n");
+        return NULL;
+    }
 
     uint8_t *spacket = malloc(sizeof(struct starter_packet_header) +
                               sizeof(struct starter_create_payload));
@@ -92,22 +111,15 @@ void *get_create_payload(char const *argv[])
     strcpy(spayload->networck_name, argv[2]);
     strcpy(spayload->networck_password, argv[3]);
 
-    char subnet[MAX_LENGTH];
-    memset(subnet, 0, MAX_LENGTH);
-
-    strcpy(subnet, argv[4]);
-
-    int init_size = strlen(subnet);
-    char delim[] = "/";
-
-    strcpy(spayload->subnet, strtok(subnet, delim));
-    strcpy(spayload->bit, strtok(NULL, delim));
+    strcpy(spayload->subnet, subnet);
+    sprintf(spayload->bit, "%d", bit_check);
 
     printf("%d\n", sheader->payload_length);
     printf("%d\n", sheader->type);
     printf("%s\n", spayload->networck_name);
     printf("%s\n", spayload->networck_password);
     printf("%s\n", spayload->subnet);
+    printf("%s\n", spayload->bit);
 
     return spacket;
 }
@@ -139,7 +151,8 @@ int main(int argc, char const *argv[])
         // } else if (pid == 0) { // Child Process
         //     char *argvc[1];
         //     argvc[0] = NULL;
-        //     execv("/home/luka/Desktop/Virtual-Local-Network/Linux/build/client/"
+        //
+        // execv("/home/luka/Desktop/Virtual-Local-Network/Linux/build/client/"
         //           "client",
         //           argvc);
         //     printf("ERROR ERROR ERROOR\n");
@@ -148,7 +161,6 @@ int main(int argc, char const *argv[])
         //     printf("Child Pid %d\n", pid);
         // }
 
-        sleep(3);
         if (connect(sock, (struct sockaddr *)&addr,
                     sizeof(struct sockaddr_un)) < 0) {
             printf("Connection Failed %s\n", strerror(errno));
@@ -172,16 +184,9 @@ int main(int argc, char const *argv[])
     if (spacket == NULL) {
         return -1;
     }
-
     struct starter_packet_header *sheader =
         (struct starter_packet_header *)spacket;
 
-    // if ((send(sock, spacket,
-    //           sizeof(struct starter_packet_header) + sheader->payload_length,
-    //           0)) < 1) {
-    //     printf("\nSend Failed %s\n", strerror(errno));
-    //     return -1;
-    // }
     if (send_wrap(tcpwrapper, (void *)spacket,
                   sizeof(struct starter_packet_header) +
                       sheader->payload_length) != 0) {
@@ -192,12 +197,6 @@ int main(int argc, char const *argv[])
     free(spacket);
 
     printf("Sending... \n");
-
-    // char buffer[BUFFER_SIZE] = {0};
-    // if (recv(sock, buffer, BUFFER_SIZE, 0) < 1) {
-    //     printf("\nRead Failed %s\n", strerror(errno));
-    //     return -1;
-    // }
 
     struct starter_packet_header rheader;
     if (recv_wrap(tcpwrapper, (void *)&rheader,
