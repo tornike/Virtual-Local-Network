@@ -90,7 +90,17 @@ void *get_create_payload(char const *argv[])
 
     strcpy(spayload->networck_name, argv[2]);
     strcpy(spayload->networck_password, argv[3]);
-    strcpy(spayload->subnet, argv[4]);
+
+    char subnet[MAX_LENGTH];
+    memset(subnet, 0, MAX_LENGTH);
+
+    strcpy(subnet, argv[4]);
+
+    int init_size = strlen(subnet);
+    char delim[] = "/";
+
+    strcpy(spayload->subnet, strtok(subnet, delim));
+    strcpy(spayload->bit, strtok(NULL, delim));
 
     printf("%d\n", sheader->payload_length);
     printf("%d\n", sheader->type);
@@ -108,6 +118,43 @@ int main(int argc, char const *argv[])
     int sock = 0;
     struct sockaddr_un addr;
 
+    if ((sock = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
+        printf("\n Socket creation error \n");
+        return -1;
+    }
+
+    memset(&addr, 0, sizeof(addr));
+
+    addr.sun_family = AF_UNIX;
+    strcpy(addr.sun_path, PATH);
+
+    if (connect(sock, (struct sockaddr *)&addr, sizeof(struct sockaddr_un)) <
+        0) {
+        printf("Start interface!\n"); // DOTO
+
+        // int pid = fork();
+        // if (pid < 0) {
+        //     printf("Process creation failed\n");
+        // } else if (pid == 0) { // Child Process
+        //     char *argvc[1];
+        //     argvc[0] = NULL;
+        //     execv("/home/luka/Desktop/Virtual-Local-Network/Linux/build/client/"
+        //           "client",
+        //           argvc);
+        //     printf("ERROR ERROR ERROOR\n");
+        // } else {
+        //     // Parent process
+        //     printf("Child Pid %d\n", pid);
+        // }
+
+        sleep(3);
+        if (connect(sock, (struct sockaddr *)&addr,
+                    sizeof(struct sockaddr_un)) < 0) {
+            printf("Connection Failed %s\n", strerror(errno));
+            return -1;
+        }
+    }
+
     if (argc == 4 && strcmp(argv[1], "connect") == 0) {
         spacket = get_connect_payload(argv);
     } else if (argc == 5 && strcmp(argv[1], "create") == 0) {
@@ -124,39 +171,17 @@ int main(int argc, char const *argv[])
         return -1;
     }
 
-    if ((sock = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
-        printf("\n Socket creation error \n");
-        return -1;
-    }
-
-    memset(&addr, 0, sizeof(addr));
-
-    addr.sun_family = AF_UNIX;
-    strcpy(addr.sun_path, PATH);
-
-    if (connect(sock, (struct sockaddr *)&addr, sizeof(struct sockaddr_un)) <
-        0) {
-        printf("Start interface!\n");
-        sleep(3);
-        if (connect(sock, (struct sockaddr *)&addr,
-                    sizeof(struct sockaddr_un)) < 0) {
-            printf("Connection Failed %s\n", strerror(errno));
-            return -1;
-        }
-    }
     struct starter_packet_header *sheader =
         (struct starter_packet_header *)spacket;
 
-    int s = 0;
-    if ((s = send(sock, spacket,
-                  sizeof(struct starter_packet_header) +
-                      sheader->payload_length,
-                  0)) < 1) {
+    if ((send(sock, spacket,
+              sizeof(struct starter_packet_header) + sheader->payload_length,
+              0)) < 1) {
         printf("\nSend Failed %s\n", strerror(errno));
         return -1;
     }
 
-    // free(spacket);
+    free(spacket);
 
     printf("Sending... \n");
 
@@ -171,17 +196,17 @@ int main(int argc, char const *argv[])
         (struct starter_packet_header *)buffer;
 
     if (rheader->type == STARTER_DONE) {
-        struct starter_respons_payload *rpayload =
-            (struct starter_respons_payload *)buffer +
-            sizeof(struct starter_packet_header);
+        struct starter_response_payload *rpayload =
+            (struct starter_response_payload
+                 *)(buffer + sizeof(struct starter_packet_header));
 
-        printf("Status: %s\n", rpayload->respons_text);
+        printf("Status: %d\n", rpayload->type);
     } else if (rheader->type == STARTER_ERROR) {
-        struct starter_respons_payload *rpayload =
-            (struct starter_respons_payload *)buffer +
-            sizeof(struct starter_packet_header);
+        struct starter_response_payload *rpayload =
+            (struct starter_response_payload
+                 *)(buffer + sizeof(struct starter_packet_header));
 
-        printf("Status: %s\n", rpayload->respons_text);
+        printf("Status: %d\n", rpayload->type);
     } else {
         printf("ERROR: Unknown Packet Type Received %d\n", rheader->type);
     }

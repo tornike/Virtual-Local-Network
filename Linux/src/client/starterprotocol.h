@@ -19,11 +19,11 @@ typedef uint8_t starter_packet_type;
 
 struct starter_packet_header {
     starter_packet_type type;
-    uint32_t payload_length; // TODO endian
+    uint32_t payload_length;
 } __attribute__((packed));
 
-struct starter_respons_payload {
-    char respons_text[30];
+struct starter_response_payload {
+    starter_packet_type type;
 } __attribute__((packed));
 
 struct starter_connect_payload {
@@ -35,6 +35,7 @@ struct starter_create_payload {
     char networck_name[MAX_LENGTH];
     char networck_password[MAX_LENGTH];
     char subnet[MAX_LENGTH];
+    char bit[2];
 } __attribute__((packed));
 
 #endif

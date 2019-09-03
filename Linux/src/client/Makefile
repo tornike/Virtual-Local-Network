@@ -6,6 +6,7 @@ HEADERS = ../lib/tcpwrapper.h ../lib/protocol.h ../router.h ../lib/taskexecutor.
 
 OBJECT_DIR = ../../build/client/
 
+
 $(OBJECT_DIR)client: $(OBJECT_DIR)main.o $(OBJECT_DIR)tcpwrapper.o $(OBJECT_DIR)router.o $(OBJECT_DIR)taskexecutor.o $(OBJECT_DIR)vlnadapter.o $(HEADERS)
 	$(CC) $^ -o $(OBJECT_DIR)$@ $(LIBS)
 
@@ -23,6 +24,10 @@ $(OBJECT_DIR)router.o: ../router.c
 
 $(OBJECT_DIR)taskexecutor.o: ../lib/taskexecutor.c
 	$(CC) $(CFLAGS_DEBUG) $< -o $@
+
+starter: starterclient.c
+	$(CC) $^ -o $(OBJECT_DIR)$@ $(LIBS)
+
 
 clean:
 	rm $(OBJECT_DIR)*
