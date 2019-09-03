@@ -4,17 +4,22 @@
 #include "../connection.h"
 #include <stdint.h>
 
+/* Router Protocol */
 #define INIT 1
-#define CONNECT 5 /* Request For Connect */
-
-#define ADDR 8
 #define KEEPALIVE 9
-#define UADDR 10
 #define DATA 11
 #define RETRANSMIT 12
+
+#define CONNECT 5 /* Request For Connect */
+#define CONNECT_APPROVE 3
 #define ROOTNODE 13
 #define UPDATES 14
 #define UPDATEDIS 15
+
+#define ADDR 8
+#define UADDR 10
+
+/* DB Protocol */
 #define ERROR 17
 #define NETWORK_NOT_EXISTS 18
 #define NAME_OR_PASSWOR 19
@@ -34,7 +39,7 @@ struct vln_packet_header {
 } __attribute__((packed));
 
 struct vln_error_payload {
-    vln_packet_type type;
+    uint8_t type;
 } __attribute__((packed));
 
 /// vadr real adry real port
