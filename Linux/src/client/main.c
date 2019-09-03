@@ -57,6 +57,7 @@ static struct vln_interface *create_interface(uint32_t addr_be,
                                               uint32_t broad_addr_be,
                                               uint32_t mask_addr_be,
                                               struct tcpwrapper *wrap);
+static void destroy_interface(struct vln_interface *vln_int);
 
 //===========GLOBALS===========
 char *_server_addr = "34.65.27.69"; // Must be changed.
@@ -217,8 +218,10 @@ void *manager_worker(struct tcpwrapper *tcpwrapper,
             printf("Recived: ROOTNODE\n");
             struct vln_rootnode_payload rpayload;
             if (recv_wrap(tcpwrapper, (void *)&rpayload,
-                          sizeof(struct vln_rootnode_payload)) != 0)
+                          sizeof(struct vln_rootnode_payload)) != 0) {
                 printf("error recv_wrap ROOTNODE \n");
+                break;
+            }
 
             printf("Root raddr: %u\n", ntohl(rpayload.raddr));
             printf("Root port: %u\n", ntohs(rpayload.rport));
@@ -232,7 +235,7 @@ void *manager_worker(struct tcpwrapper *tcpwrapper,
             struct vln_updates_payload rpayload;
             if (recv_wrap(tcpwrapper, (void *)&rpayload,
                           sizeof(struct vln_updates_payload)) != 0) {
-                // TODO
+                break;
             }
             printf("Update %u %u %u %u %u\n", ntohl(rpayload.svaddr),
                    ntohl(rpayload.dvaddr), ntohl(rpayload.vaddr),
@@ -248,7 +251,7 @@ void *manager_worker(struct tcpwrapper *tcpwrapper,
             struct vln_updatedis_payload rpayload;
             if (recv_wrap(tcpwrapper, (void *)&rpayload,
                           sizeof(struct vln_updatedis_payload)) != 0) {
-                // TODO
+                break;
             }
             router_remove_connection(vln_int->router, ntohl(rpayload.vaddr));
         } else {
@@ -272,7 +275,7 @@ void *manager_worker(struct tcpwrapper *tcpwrapper,
 
     router_destroy(vln_int->router);
 
-    // destroy vln_interface
+    destroy_interface(vln_int);
 
     printf("client died\n");
 
@@ -314,6 +317,12 @@ static struct vln_interface *create_interface(uint32_t addr_be,
     taskexecutor_start(rlistener);
 
     return new_int;
+}
+
+static void destroy_interface(struct vln_interface *vln_int)
+{
+    vln_adapter_destroy(vln_int->adapter);
+    free(vln_int);
 }
 
 struct tcpwrapper *create_server_tcpwrapper()
@@ -525,7 +534,6 @@ int starter_recv_connections()
         }
 
         tcpwrapper_destroy(starter_tcpwrapper);
-        close(starter_socket);
     }
     close(starter_sfd);
     return 0;

@@ -2,8 +2,12 @@
 #include <pthread.h>
 #include <stdlib.h>
 
+#include <stdio.h>
+
 #include "taskexecutor.h"
 #include "utlist.h"
+
+#define DIE 0
 
 struct task_info_wrapper {
     struct task_info *tinfo;
@@ -37,6 +41,9 @@ void *executor_worker(void *args)
         pthread_mutex_unlock(&executor->queue_lock);
 
         free(tiw);
+        if (cur_task_info->operation == DIE) {
+            break;
+        }
         executor->handler(executor->handler_args, cur_task_info);
         free(cur_task_info);
     }
@@ -60,6 +67,14 @@ struct taskexecutor *taskexecutor_create(Handler handler, void *args)
 
 void taskexecutor_destroy(struct taskexecutor *executor)
 {
+    struct task_info *dtinfo = malloc(sizeof(struct task_info));
+    dtinfo->operation = DIE;
+    dtinfo->args = NULL;
+    taskexecutor_add_task(executor, dtinfo);
+
+    pthread_join(executor->worker, NULL);
+    printf("Task Executor Died\n");
+
     pthread_mutex_destroy(&executor->queue_lock);
     pthread_cond_destroy(&executor->queue_cond);
     free(executor);

@@ -262,6 +262,8 @@ void router_destroy(struct router *router)
     pthread_join(router->kasw, NULL);
     printf("Keep Alive Thread Died\n");
 
+    taskexecutor_destroy(router->peer_listener);
+
     close(router->sockfd);
     close(router->epoll_fd);
     free(router);
@@ -292,7 +294,9 @@ void router_remove_connection(struct router *router, uint32_t vaddr)
     pthread_rwlock_unlock(&router->routing_table_lock);
 
     printf("Seg2\n");
-    destroy_connection(con); // TODO Correctly remove from epoll
+    if (con != NULL) {
+        destroy_connection(con); // TODO Correctly remove from epoll
+    }
 }
 
 struct router_buffer_slot *router_get_free_slot(struct router *router)
@@ -366,7 +370,7 @@ void router_send(struct router *router, struct router_buffer_slot *slot)
 {
     pthread_mutex_lock(&router->send_buffer_lock);
     DL_APPEND(router->send_buffer, slot);
-    printf("Added to send buffer\n");
+    // printf("Added to send buffer\n");
     pthread_cond_broadcast(&router->send_buffer_cond);
     pthread_mutex_unlock(&router->send_buffer_lock);
 }
@@ -439,14 +443,25 @@ static void *recv_worker(void *arg)
     void *packetd;
     struct router_buffer_slot *slot;
     while (1) {
+        struct router_buffer_slot *tmp;
+        int c = 0;
+        pthread_mutex_lock(&router->free_slots_lock);
+        DL_COUNT(router->free_slots, tmp, c);
+        pthread_mutex_unlock(&router->free_slots_lock);
+
+        printf("Free Buffers %d\n", c);
+
         slot = router_get_free_slot(router); // waiting point
 
         if (slot == NULL)
             break;
 
+        printf("Waiting on RecvFrom\n");
         slot->used_size =
             recvfrom(router->sockfd, slot->buffer, SLOT_SIZE, 0,
                      (struct sockaddr *)&raddr, &slen); // waiting point
+        printf("RECVED FROM PORT AFTER RECVFROM %d\n", ntohs(raddr.sin_port));
+        printf("Returned from RecvFrom\n");
 
         if (slot->used_size < 1) {
             router_add_free_slot(router, slot);
@@ -491,7 +506,7 @@ static void *recv_worker(void *arg)
                 (struct vln_data_keepalive_payload *)DATA_PACKET_PAYLOAD(
                     slot->buffer);
 
-            router_add_free_slot(router, slot);
+            printf("RECVED FROM PORT %d\n", ntohs(raddr.sin_port));
 
             vaddr = ntohl(rpayload->vaddr);
             key = vaddr - router->network_addr;
@@ -499,8 +514,8 @@ static void *recv_worker(void *arg)
             pthread_rwlock_rdlock(&router->routing_table_lock);
             timerfd_settime(router->routing_table[key]->rkinfo->timerfd, 0,
                             &iti, NULL);
-            // printf("rtimer reset %d\n",
-            //        router->routing_table[key]->rkinfo->timerfd);
+            printf("rtimer reset %d\n",
+                   router->routing_table[key]->rkinfo->timerfd);
             pthread_rwlock_unlock(&router->routing_table_lock);
 
             struct router_connection *pen_con;
@@ -514,9 +529,8 @@ static void *recv_worker(void *arg)
             }
             pthread_mutex_unlock(&router->pending_connections_lock);
 
-        } else if (packeth->type == INIT) {
             router_add_free_slot(router, slot);
-
+        } else if (packeth->type == INIT) {
             printf("Init Recvd\n");
             struct vln_data_init_payload *payload =
                 (struct vln_data_init_payload *)DATA_PACKET_PAYLOAD(packeth);
@@ -542,11 +556,12 @@ static void *recv_worker(void *arg)
             task->args = act;
             taskexecutor_add_task(router->peer_listener, task);
 
+            router_add_free_slot(router, slot);
         } else {
             printf("bad type\n");
         }
     }
-
+    printf("Recv_thread in router died\n");
     return NULL;
 }
 
@@ -568,7 +583,7 @@ static void *send_worker(void *arg)
     struct itimerspec iti;
     memset(&iti, 0, sizeof(struct itimerspec));
     iti.it_interval.tv_sec = 0;
-    iti.it_value.tv_sec = 10;
+    iti.it_value.tv_sec = 5;
 
     struct router_buffer_slot *slot_to_send;
     while (1) {
@@ -593,7 +608,7 @@ static void *send_worker(void *arg)
         }
         slot_to_send = router->send_buffer;
         DL_DELETE(router->send_buffer, slot_to_send);
-        printf("Delete from send buffer\n");
+        // printf("Delete from send buffer\n");
         pthread_mutex_unlock(&router->send_buffer_lock);
 
         packeth = ((struct vln_data_packet_header *)slot_to_send->buffer);
@@ -648,7 +663,7 @@ static void *keep_alive_worker(void *arg)
     struct itimerspec iti;
     memset(&iti, 0, sizeof(struct itimerspec));
     iti.it_interval.tv_sec = 0;
-    iti.it_value.tv_sec = 10;
+    iti.it_value.tv_sec = 5;
 
     struct sockaddr_in saddr;
     saddr.sin_family = AF_INET;
