@@ -32,6 +32,7 @@ struct server_connection {
     uint32_t udp_port;
     int sockfd;
     struct tcpwrapper *tcpwrapper;
+
     /*
         Maybe timers...
     */
@@ -137,22 +138,20 @@ void router_listener(void *args, struct task_info *tinfo)
         }
         pthread_mutex_unlock(&net->connections_lock);
         free(act);
-    } else if (tinfo->operation ==
-               PEERDISCONNECTED) { // check for vaddr == 0 which is server on
-                                   // client
+    } else if (tinfo->operation == PEERDISCONNECTED) {
         struct router_action *act = (struct router_action *)tinfo->args;
 
-        //+===============mgoni ar unda=================
+        printf("PEERDISCONNECTED \n");
+
         pthread_mutex_lock(&net->connections_lock);
 
         struct server_connection *curr_con;
         HASH_FIND_INT(net->connections, &act->vaddr, curr_con);
         if (curr_con != NULL) {
-            shutdown(curr_con->sockfd, SHUT_RDWR); // Maybe not good working.
+            tcpwrapper_set_die_flag(curr_con->tcpwrapper);
         }
-        curr_con->vaddr = 0;
+        // curr_con->vaddr = 0;  Seg Fault da gasaazrebelia
         pthread_mutex_unlock(&net->connections_lock);
-        //+===============mgoni ar unda=================
 
         free(act);
     } else {
@@ -197,9 +196,8 @@ void *manager_worker(void *arg)
 
     struct tcpwrapper *tcpwrapper = tcpwrapper_create(sockfd, 1024);
 
-    socklen_t c_addr_size = sizeof(struct sockaddr_in);
-
     //===========ZEDMET=============
+    socklen_t c_addr_size = sizeof(struct sockaddr_in);
     struct sockaddr_in c_addr;
     getpeername(sockfd, (struct sockaddr *)&c_addr, &c_addr_size);
 

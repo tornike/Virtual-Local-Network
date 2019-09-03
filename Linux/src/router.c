@@ -285,8 +285,9 @@ void router_remove_connection(struct router *router, uint32_t vaddr)
 
     struct router_connection *con;
     pthread_rwlock_wrlock(&router->routing_table_lock);
-    printf("Seg1\n");
+    printf("Seg1 %d %u\n", key, vaddr);
     con = router->routing_table[key];
+    printf("Seg1.5\n");
     router->routing_table[key] = NULL;
     pthread_rwlock_unlock(&router->routing_table_lock);
 
@@ -509,6 +510,7 @@ static void *recv_worker(void *arg)
                 HASH_DEL(router->pending_connections, pen_con);
                 timerfd_settime(pen_con->rkinfo->timerfd, 0, &iti, NULL);
                 update_routing_table(router, pen_con->vaddr, pen_con);
+                printf("P2P\n");
             }
             pthread_mutex_unlock(&router->pending_connections_lock);
 

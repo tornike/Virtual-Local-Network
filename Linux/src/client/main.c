@@ -11,6 +11,7 @@
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <sys/types.h>
 #include <sys/un.h>
 #include <unistd.h>
@@ -65,12 +66,15 @@ int _server_port_temp = 33507; // Must be changed.
 void router_listener(void *args, struct task_info *tinfo)
 {
     struct vln_interface *vln_int = (struct vln_interface *)args;
-    // TODO;
-    // check if its server die and if its p2p setup pyramid.
-    printf("Peers Changed\n");
+
     if (tinfo->operation == PEERDISCONNECTED) {
+        printf("Peers Disconnected\n");
         struct router_action *act = (struct router_action *)tinfo->args;
-        router_setup_pyramid(vln_int->router, act->vaddr);
+        if (act->vaddr == (vln_int->address & vln_int->mask_address)) {
+            tcpwrapper_set_die_flag(vln_int->server_connection);
+        } else {
+            router_setup_pyramid(vln_int->router, act->vaddr);
+        }
         free(act);
     }
 }
@@ -223,7 +227,6 @@ void *manager_worker(struct tcpwrapper *tcpwrapper,
             router_send_init(vln_int->router, ntohl(rpayload.raddr),
                              ntohs(rpayload.rport));
 
-            break;
         } else if (rpacket.type == UPDATES) {
             printf("Updates Received\n");
             struct vln_updates_payload rpayload;
@@ -240,7 +243,6 @@ void *manager_worker(struct tcpwrapper *tcpwrapper,
 
             router_setup_pyramid(vln_int->router, ntohl(rpayload.vaddr));
 
-            break;
         } else if (rpacket.type == UPDATEDIS) {
             printf("UPDATEDIS Received\n");
             struct vln_updatedis_payload rpayload;
@@ -248,8 +250,7 @@ void *manager_worker(struct tcpwrapper *tcpwrapper,
                           sizeof(struct vln_updatedis_payload)) != 0) {
                 // TODO
             }
-            // router_remove_connection(router, ntohl(rpayload.vaddr));
-            break;
+            router_remove_connection(vln_int->router, ntohl(rpayload.vaddr));
         } else {
             printf("ERROR: Unknown Packet Type\n");
             break;
@@ -271,8 +272,11 @@ void *manager_worker(struct tcpwrapper *tcpwrapper,
 
     router_destroy(vln_int->router);
 
-    // destroy router
+    // destroy vln_interface
+
     printf("client died\n");
+
+    return NULL;
 }
 
 static struct vln_interface *create_interface(uint32_t addr_be,
@@ -350,9 +354,9 @@ int send_starter_response(struct tcpwrapper *starter_tcpwrapper,
     sheader->payload_length = sizeof(struct starter_response_payload);
 
     struct starter_response_payload *spayload =
-        (struct starter_respons_payload *)(spacket +
-                                           sizeof(
-                                               struct starter_packet_header));
+        (struct starter_response_payload *)(spacket +
+                                            sizeof(
+                                                struct starter_packet_header));
 
     spayload->type = type;
     return send_wrap(starter_tcpwrapper, (void *)spacket, sizeof(spacket));
