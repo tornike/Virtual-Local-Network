@@ -25,7 +25,7 @@ $(OBJECT_DIR)router.o: ../router.c
 $(OBJECT_DIR)taskexecutor.o: ../lib/taskexecutor.c
 	$(CC) $(CFLAGS_DEBUG) $< -o $@
 
-starter: starterclient.c
+starter: starterclient.c $(OBJECT_DIR)tcpwrapper.o
 	$(CC) $^ -o $(OBJECT_DIR)$@ $(LIBS)
 
 

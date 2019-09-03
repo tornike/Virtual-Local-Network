@@ -1,3 +1,4 @@
+#include "../lib/tcpwrapper.h"
 #include "starterprotocol.h"
 #include <arpa/inet.h>
 #include <errno.h>
@@ -154,6 +155,7 @@ int main(int argc, char const *argv[])
             return -1;
         }
     }
+    struct tcpwrapper *tcpwrapper = tcpwrapper_create(sock, 2048);
 
     if (argc == 4 && strcmp(argv[1], "connect") == 0) {
         spacket = get_connect_payload(argv);
@@ -174,41 +176,43 @@ int main(int argc, char const *argv[])
     struct starter_packet_header *sheader =
         (struct starter_packet_header *)spacket;
 
-    if ((send(sock, spacket,
-              sizeof(struct starter_packet_header) + sheader->payload_length,
-              0)) < 1) {
-        printf("\nSend Failed %s\n", strerror(errno));
-        return -1;
+    // if ((send(sock, spacket,
+    //           sizeof(struct starter_packet_header) + sheader->payload_length,
+    //           0)) < 1) {
+    //     printf("\nSend Failed %s\n", strerror(errno));
+    //     return -1;
+    // }
+    if (send_wrap(tcpwrapper, (void *)spacket,
+                  sizeof(struct starter_packet_header) +
+                      sheader->payload_length) != 0) {
+        printf("error send_wrap connect\n");
+    } else {
+        printf("send_wrap connect\n");
     }
-
     free(spacket);
 
     printf("Sending... \n");
 
-    // TODO
-    char buffer[BUFFER_SIZE] = {0};
-    if (recv(sock, buffer, BUFFER_SIZE, 0) < 1) {
-        printf("\nRead Failed %s\n", strerror(errno));
-        return -1;
-    }
+    // char buffer[BUFFER_SIZE] = {0};
+    // if (recv(sock, buffer, BUFFER_SIZE, 0) < 1) {
+    //     printf("\nRead Failed %s\n", strerror(errno));
+    //     return -1;
+    // }
 
-    struct starter_packet_header *rheader =
-        (struct starter_packet_header *)buffer;
+    struct starter_packet_header rheader;
+    if (recv_wrap(tcpwrapper, (void *)&rheader,
+                  sizeof(struct starter_packet_header)) != 0)
+        printf("error recv_wrap INIT \n");
 
-    if (rheader->type == STARTER_DONE) {
-        struct starter_response_payload *rpayload =
-            (struct starter_response_payload
-                 *)(buffer + sizeof(struct starter_packet_header));
-
-        printf("Status: %d\n", rpayload->type);
-    } else if (rheader->type == STARTER_ERROR) {
-        struct starter_response_payload *rpayload =
-            (struct starter_response_payload
-                 *)(buffer + sizeof(struct starter_packet_header));
-
-        printf("Status: %d\n", rpayload->type);
+    if (rheader.type == STARTER_DONE || rheader.type == STARTER_ERROR) {
+        struct starter_response_payload rpayload;
+        if (recv_wrap(tcpwrapper, (void *)&rpayload,
+                      sizeof(struct starter_response_payload)) != 0)
+            printf("error recv_wrap INIT \n");
+        // TODO Rsponse Text
+        printf("Status: %d\n", rpayload.type);
     } else {
-        printf("ERROR: Unknown Packet Type Received %d\n", rheader->type);
+        printf("ERROR: Unknown Packet Type Received %d\n", rheader.type);
     }
 
     close(sock);

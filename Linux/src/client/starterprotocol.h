@@ -13,6 +13,14 @@
 #define STARTER_STOP 90
 #define STARTER_ERROR 96
 #define STARTER_DONE 69
+/* DB Protocol */
+#define ERROR 17
+#define NETWORK_NOT_EXISTS 18
+#define NAME_OR_PASSWOR 19
+#define UNKNOWN_PACKET_TYPE 20
+#define CREATE 21
+#define INSERT_ERROR 22
+
 #define BUFFER_SIZE 2048
 
 typedef uint8_t starter_packet_type;
