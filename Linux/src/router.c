@@ -89,7 +89,7 @@ struct router {
     struct taskexecutor *peer_listener;
 
     struct router_connection *pending_connections;
-    pthread_rwlock_t pending_connections_lock;
+    pthread_mutex_t pending_connections_lock;
 
     int buffer_threads_flag;
     pthread_rwlock_t buffer_threads_flag_lock;
@@ -152,8 +152,8 @@ struct router *router_create(uint32_t vaddr, uint32_t net_addr,
         exit(EXIT_FAILURE);
     }
 
-    // router->held_connections = NULL;
-    // pthread_rwlock_init(&router->held_connections_lock, NULL);
+    router->pending_connections = NULL;
+    pthread_mutex_init(&router->pending_connections_lock, NULL);
 
     router->peer_listener = taskexecutor;
 
@@ -247,10 +247,24 @@ void router_destroy(struct router *router)
     printf("Freed Slots %d %d %d\n", del_freeslots, del_recvslots,
            del_sendslots);
 
+    free(router->routing_table);
+
+    pthread_rwlock_destroy(&router->buffer_threads_flag_lock);
+    pthread_rwlock_destroy(&router->routing_table_lock);
+    pthread_mutex_destroy(&router->pending_connections_lock);
+    pthread_mutex_destroy(&router->free_slots_lock);
+    pthread_mutex_destroy(&router->recv_buffer_lock);
+    pthread_mutex_destroy(&router->send_buffer_lock);
+    pthread_cond_destroy(&router->free_slots_cond);
+    pthread_cond_destroy(&router->send_buffer_cond);
+    pthread_cond_destroy(&router->recv_buffer_cond);
+
     pthread_join(router->kasw, NULL);
     printf("Keep Alive Thread Died\n");
 
     close(router->sockfd);
+    close(router->epoll_fd);
+    free(router);
 }
 
 void router_try_connection(struct router *router, uint32_t vaddr,
@@ -259,10 +273,10 @@ void router_try_connection(struct router *router, uint32_t vaddr,
     struct router_connection *new_con = create_connection(vaddr, raddr, rport);
     new_con->active = 0;
 
-    pthread_rwlock_wrlock(&router->pending_connections_lock);
+    pthread_mutex_lock(&router->pending_connections_lock);
     HASH_ADD_INT(router->pending_connections, vaddr, new_con);
     set_timers(router, new_con, 1, 30);
-    pthread_rwlock_unlock(&router->pending_connections_lock);
+    pthread_mutex_unlock(&router->pending_connections_lock);
 }
 
 void router_remove_connection(struct router *router, uint32_t vaddr)
@@ -484,9 +498,19 @@ static void *recv_worker(void *arg)
             pthread_rwlock_rdlock(&router->routing_table_lock);
             timerfd_settime(router->routing_table[key]->rkinfo->timerfd, 0,
                             &iti, NULL);
-            printf("rtimer reset %d\n",
-                   router->routing_table[key]->rkinfo->timerfd);
+            // printf("rtimer reset %d\n",
+            //        router->routing_table[key]->rkinfo->timerfd);
             pthread_rwlock_unlock(&router->routing_table_lock);
+
+            struct router_connection *pen_con;
+            pthread_mutex_lock(&router->pending_connections_lock);
+            HASH_FIND_INT(router->pending_connections, &vaddr, pen_con);
+            if (pen_con != NULL) {
+                HASH_DEL(router->pending_connections, pen_con);
+                timerfd_settime(pen_con->rkinfo->timerfd, 0, &iti, NULL);
+                update_routing_table(router, pen_con->vaddr, pen_con);
+            }
+            pthread_mutex_unlock(&router->pending_connections_lock);
 
         } else if (packeth->type == INIT) {
             router_add_free_slot(router, slot);
@@ -650,7 +674,7 @@ static void *keep_alive_worker(void *arg)
                 // Delete
                 uint64_t timerexps;
                 read(kinfo->timerfd, &timerexps, sizeof(uint64_t));
-                printf("Send Timer '%lu'\n", timerexps);
+                // printf("Send Timer '%lu'\n", timerexps);
                 // Delete
 
                 uint8_t spacket[sizeof(struct vln_data_packet_header) +
@@ -669,8 +693,8 @@ static void *keep_alive_worker(void *arg)
                 sendto(router->sockfd, &spacket, sizeof(spacket), 0,
                        (struct sockaddr *)&saddr, sizeof(struct sockaddr_in));
 
-                printf("KEEPALIVE SENT %u %u %d %d\n", kinfo->con->vaddr,
-                       kinfo->con->raddr, kinfo->con->rport, kinfo->timerfd);
+                // printf("KEEPALIVE SENT %u %u %d %d\n", kinfo->con->vaddr,
+                //        kinfo->con->raddr, kinfo->con->rport, kinfo->timerfd);
 
                 timerfd_settime(kinfo->timerfd, 0, &iti, NULL);
             } else if (kinfo->event == KEEPALIVERECV) {

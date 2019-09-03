@@ -28,32 +28,57 @@
 #define UPDATETABLE 700
 #define BUFFERSIZE 4096
 
-//===========GLOBALS===========
-char *_server_addr = "34.65.27.69"; // Must be changed.
-int _server_port_temp = 33507; // Must be changed.
-struct tunnel_interface *_interface;
+struct vln_interface {
+    uint32_t address;
+    uint32_t mask_address;
+    uint32_t broadcast_address;
+    uint8_t network_bits;
 
-pthread_t _sender;
-pthread_t _receiver;
-//===========GLOBALS===========
+    struct tcpwrapper *server_connection;
+
+    struct router *router;
+
+    struct vln_adapter *adapter;
+
+    pthread_t sender;
+    pthread_t receiver;
+
+    UT_hash_handle hh;
+};
 
 struct cleanup_handler_arg {
-    struct router *router;
+    struct vln_interface *vln_int;
     struct router_buffer_slot *slot;
 };
 
+/* Prototypes */
+static struct vln_interface *create_interface(uint32_t addr_be,
+                                              uint32_t broad_addr_be,
+                                              uint32_t mask_addr_be,
+                                              struct tcpwrapper *wrap);
+
+//===========GLOBALS===========
+char *_server_addr = "34.65.27.69"; // Must be changed.
+int _server_port_temp = 33507; // Must be changed.
+//===========GLOBALS===========
+
 void router_listener(void *args, struct task_info *tinfo)
 {
-    struct tcpwrapper *server_con = (struct tcpwrapper *)args;
+    struct vln_interface *vln_int = (struct vln_interface *)args;
     // TODO;
     // check if its server die and if its p2p setup pyramid.
     printf("Peers Changed\n");
+    if (tinfo->operation == PEERDISCONNECTED) {
+        struct router_action *act = (struct router_action *)tinfo->args;
+        router_setup_pyramid(vln_int->router, act->vaddr);
+        free(act);
+    }
 }
 
 static void cleanup_handler(void *arg)
 {
     struct cleanup_handler_arg *cha = (struct cleanup_handler_arg *)arg;
-    router_add_free_slot(cha->router, cha->slot);
+    router_add_free_slot(cha->vln_int->router, cha->slot);
     free(cha);
     printf("Cleanup Done\n");
 }
@@ -64,9 +89,9 @@ void *recv_thread(void *arg)
 
     struct cleanup_handler_arg *cha =
         malloc(sizeof(struct cleanup_handler_arg));
-    cha->router = (struct router *)arg;
+    cha->vln_int = (struct vln_interface *)arg;
     while (1) {
-        cha->slot = router_receive(cha->router); // waiting point
+        cha->slot = router_receive(cha->vln_int->router); // waiting point
 
         if (cha->slot == NULL)
             break;
@@ -84,13 +109,13 @@ void *recv_thread(void *arg)
 
         pthread_cleanup_push(cleanup_handler, cha);
 
-        write(_interface->fd,
+        write(cha->vln_int->adapter->fd,
               cha->slot->buffer + sizeof(struct vln_data_packet_header),
               cha->slot->used_size - sizeof(struct vln_data_packet_header));
 
         pthread_cleanup_pop(0);
 
-        router_add_free_slot(cha->router, cha->slot);
+        router_add_free_slot(cha->vln_int->router, cha->slot);
     }
     printf("Recv Thread Returns\n");
     free(cha);
@@ -103,9 +128,9 @@ void *send_thread(void *arg)
 
     struct cleanup_handler_arg *cha =
         malloc(sizeof(struct cleanup_handler_arg));
-    cha->router = (struct router *)arg;
+    cha->vln_int = (struct vln_interface *)arg;
     while (1) {
-        cha->slot = router_get_free_slot(cha->router); // waiting point
+        cha->slot = router_get_free_slot(cha->vln_int->router); // waiting point
 
         if (cha->slot == NULL)
             break;
@@ -113,7 +138,7 @@ void *send_thread(void *arg)
         pthread_cleanup_push(cleanup_handler, cha);
 
         cha->slot->used_size = read(
-            _interface->fd,
+            cha->vln_int->adapter->fd,
             cha->slot->buffer + sizeof(struct vln_data_packet_header),
             SLOT_SIZE -
                 sizeof(struct vln_data_packet_header)); // Cancelation point.
@@ -121,13 +146,13 @@ void *send_thread(void *arg)
         pthread_cleanup_pop(0);
 
         if (cha->slot->used_size < 1) {
-            router_add_free_slot(cha->router, cha->slot);
+            router_add_free_slot(cha->vln_int->router, cha->slot);
             break;
         }
 
         cha->slot->used_size += sizeof(struct vln_data_packet_header);
         ((struct vln_data_packet_header *)cha->slot->buffer)->type = DATA;
-        router_send(cha->router, cha->slot);
+        router_send(cha->vln_int->router, cha->slot);
     }
     printf("Send Thread Returns\n");
     free(cha);
@@ -178,7 +203,6 @@ void manager_worker()
     int server_port = _server_port_temp;
     char *tcp_server_addr = _server_addr;
     struct sockaddr_in server_addr;
-    struct router *router;
 
     memset(&server_addr, 0, sizeof(server_addr));
 
@@ -199,11 +223,6 @@ void manager_worker()
 
     struct tcpwrapper *tcpwrapper =
         tcpwrapper_create(sockfd, 1024); // TODO error cheking
-
-    struct taskexecutor *rlistener =
-        taskexecutor_create((Handler)&router_listener, tcpwrapper);
-
-    taskexecutor_start(rlistener);
 
     uint8_t spacket[sizeof(struct vln_packet_header) +
                     sizeof(struct vln_connect_payload)];
@@ -242,6 +261,7 @@ void manager_worker()
     }
 
     struct vln_packet_header rpacket;
+    struct vln_interface *vln_int;
     while (1) {
         printf("recv\n");
         if (recv_wrap(tcpwrapper, (void *)&rpacket,
@@ -269,22 +289,8 @@ void manager_worker()
                           sizeof(struct vln_init_payload)) != 0)
                 printf("error recv_wrap INIT \n");
 
-            if (tunnel_interface_set_network(rpayload.vaddr, rpayload.maskaddr,
-                                             rpayload.broadaddr) == -1) {
-                dprintf(STDERR_FILENO,
-                        "Adding payload in interface failed: %s\n ",
-                        strerror(errno));
-                exit(EXIT_FAILURE);
-            }
-
-            int router_sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-            router = router_create(
-                ntohl(rpayload.vaddr),
-                ntohl(rpayload.vaddr) & ntohl(rpayload.maskaddr),
-                ntohl(rpayload.broadaddr), router_sockfd, rlistener);
-
-            pthread_create(&_receiver, NULL, recv_thread, (void *)router);
-            pthread_create(&_sender, NULL, send_thread, (void *)router);
+            vln_int = create_interface(rpayload.vaddr, rpayload.broadaddr,
+                                       rpayload.maskaddr, tcpwrapper);
 
             break;
         }
@@ -299,12 +305,8 @@ void manager_worker()
             printf("Root port: %u\n", ntohs(rpayload.rport));
             printf("Root vaddr: %u\n", ntohl(rpayload.vaddr));
 
-            router_send_init(router, ntohl(rpayload.raddr),
+            router_send_init(vln_int->router, ntohl(rpayload.raddr),
                              ntohs(rpayload.rport));
-
-            // router_add_connection(router, 0, ntohl(rpayload.vaddr),
-            //                       ntohl(rpayload.raddr),
-            //                       ntohs(rpayload.rport), 0, 1);
 
             break;
         }
@@ -319,11 +321,10 @@ void manager_worker()
                    ntohl(rpayload.dvaddr), ntohl(rpayload.vaddr),
                    ntohl(rpayload.raddr), ntohs(rpayload.rport));
 
-            // router_try_connection(router, ntohl(rpayload.vaddr),
-            //                       ntohl(rpayload.raddr),
-            //                       ntohs(rpayload.rport));
+            router_try_connection(vln_int->router, ntohl(rpayload.vaddr),
+                                  ntohl(rpayload.raddr), ntohs(rpayload.rport));
 
-            router_setup_pyramid(router, ntohl(rpayload.vaddr));
+            router_setup_pyramid(vln_int->router, ntohl(rpayload.vaddr));
 
             break;
         }
@@ -355,18 +356,18 @@ void manager_worker()
 
     tcpwrapper_destroy(tcpwrapper);
 
-    router_stop(router);
+    router_stop(vln_int->router);
     printf("Router stopped\n");
 
-    pthread_cancel(_sender);
-    pthread_cancel(_receiver);
+    pthread_cancel(vln_int->sender);
+    pthread_cancel(vln_int->receiver);
 
-    pthread_join(_receiver, NULL);
+    pthread_join(vln_int->receiver, NULL);
     printf("Client Receiver died\n");
-    pthread_join(_sender, NULL);
+    pthread_join(vln_int->sender, NULL);
     printf("Client Sender died\n");
 
-    router_destroy(router);
+    router_destroy(vln_int->router);
 
     // destroy router
     printf("client died\n");
@@ -455,9 +456,9 @@ int starter_server()
                                      "STARTER_CONNECT");
             } else if (rheader->type == STARTER_DISCONNECT) {
                 printf("Discnnect\n");
-                if (_interface != NULL) {
-                    // TODO
-                }
+                // if (_interface != NULL) {
+                //     // TODO
+                // }
                 send_starter_respons(new_socket, STARTER_DONE,
                                      "STARTER_DISCONNECT");
             } else if (rheader->type == STARTER_STOP) {
@@ -477,13 +478,47 @@ int starter_server()
     unlink(PATH);
     return 0;
 }
+
+static struct vln_interface *create_interface(uint32_t addr_be,
+                                              uint32_t broad_addr_be,
+                                              uint32_t mask_addr_be,
+                                              struct tcpwrapper *wrap)
+{
+    struct vln_adapter *adapter = vln_adapter_create(IFF_TUN | IFF_NO_PI);
+
+    if (vln_adapter_set_network(adapter, addr_be, mask_addr_be,
+                                broad_addr_be) == -1) {
+        dprintf(STDERR_FILENO, "Adding payload in interface failed: %s\n ",
+                strerror(errno));
+        exit(EXIT_FAILURE); // TODO
+    }
+
+    struct vln_interface *new_int = malloc(sizeof(struct vln_interface));
+    new_int->address = ntohl(addr_be);
+    new_int->broadcast_address = ntohl(broad_addr_be);
+    new_int->mask_address = ntohl(mask_addr_be);
+    new_int->server_connection = wrap;
+    new_int->adapter = adapter;
+
+    struct taskexecutor *rlistener =
+        taskexecutor_create((Handler)&router_listener, new_int);
+
+    int router_sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    new_int->router = router_create(
+        new_int->address, new_int->address & new_int->mask_address,
+        new_int->broadcast_address, router_sockfd, rlistener);
+
+    pthread_create(&new_int->receiver, NULL, recv_thread, (void *)new_int);
+    pthread_create(&new_int->sender, NULL, send_thread, (void *)new_int);
+
+    taskexecutor_start(rlistener);
+
+    return new_int;
+}
+
 int main(int argc, char **argv)
 {
-    _interface = tunnel_interface_create(IFF_TUN | IFF_NO_PI);
-
-    if (_interface != NULL) {
-        manager_worker();
-    }
+    manager_worker();
     // starter_server();
 
     /// yvelafris washlaa dasaweri

@@ -141,15 +141,19 @@ void router_listener(void *args, struct task_info *tinfo)
                PEERDISCONNECTED) { // check for vaddr == 0 which is server on
                                    // client
         struct router_action *act = (struct router_action *)tinfo->args;
+
+        //+===============mgoni ar unda=================
         pthread_mutex_lock(&net->connections_lock);
 
         struct server_connection *curr_con;
         HASH_FIND_INT(net->connections, &act->vaddr, curr_con);
         if (curr_con != NULL) {
-            shutdown(curr_con->sockfd, SHUT_RDWR);
+            shutdown(curr_con->sockfd, SHUT_RDWR); // Maybe not good working.
         }
         curr_con->vaddr = 0;
         pthread_mutex_unlock(&net->connections_lock);
+        //+===============mgoni ar unda=================
+
         free(act);
     } else {
         printf("Unknown router_listener operation\n");
