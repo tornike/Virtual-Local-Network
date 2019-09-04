@@ -673,6 +673,7 @@ static void *keep_alive_worker(void *arg)
     while (1) {
         event_count =
             epoll_wait(router->epoll_fd, router->events, MAX_EVENTS, -1);
+        printf("EPOLL EVENT COUNT %d\n", event_count);
         for (i = 0; i < event_count; i++) {
             kinfo = router->events[i].data.ptr;
 

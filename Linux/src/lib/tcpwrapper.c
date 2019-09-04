@@ -73,11 +73,14 @@ int recv_wrap(struct tcpwrapper *wrapper, void *buffer, size_t size)
             ssize_t recv_tmp;
             while ((recv_tmp = recv(wrapper->sockfd, wrapper->buffer,
                                     wrapper->buffer_size, 0)) < 0) {
-                if (errno != EAGAIN || errno != EWOULDBLOCK)
+                if (errno != EAGAIN || errno != EWOULDBLOCK) {
+                    printf("Not EAGAIN or EWOULDBLOCK %d\n", errno);
                     return 1;
+                }
                 pthread_mutex_lock(&wrapper->dflag.lock);
                 if (wrapper->dflag.flag == 1) {
                     pthread_mutex_unlock(&wrapper->dflag.lock);
+                    printf("Returning cause of flag\n");
                     return 1;
                 }
                 pthread_mutex_unlock(&wrapper->dflag.lock);
