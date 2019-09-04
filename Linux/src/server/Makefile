@@ -1,7 +1,7 @@
 CC = gcc
 CFLAGS_RELEASE = -Wall -c
 CFLAGS_DEBUG = -Wall -g -c
-LIBS = -lpthread -lm -l sqlite3
+LIBS = -lpthread -lm -l sqlite3 -ljson-c
 HEADERS = ../lib/tcpwrapper.h ../lib/protocol.h ../router.h ../lib/taskexecutor.h db.h
 
 OBJECT_DIR = ../../build/server/
