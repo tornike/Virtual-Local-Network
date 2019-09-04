@@ -10,13 +10,13 @@
 #include <sys/un.h>
 #include <unistd.h>
 
-void *get_cancel_payload(starter_packet_type type)
+void *get_disconnect_payload()
 {
     uint8_t *spacket = malloc(sizeof(struct starter_packet_header));
 
     struct starter_packet_header *sheader =
         (struct starter_packet_header *)spacket;
-    sheader->type = type;
+    sheader->type = STARTER_DISCONNECT;
     sheader->payload_length = 0;
 
     printf("%d\n", sheader->payload_length);
@@ -168,22 +168,19 @@ int main(int argc, char const *argv[])
         0) {
         printf("Start interface!\n"); // DOTO
 
-        // int pid = fork();
-        // if (pid < 0) {
-        //     printf("Process creation failed\n");
-        // } else if (pid == 0) { // Child Process
-        //     char *argvc[1];
-        //     argvc[0] = NULL;
-        //
-        // execv("/home/luka/Desktop/Virtual-Local-Network/Linux/build/client/"
-        //           "client",
-        //           argvc);
-        //     printf("ERROR ERROR ERROOR\n");
-        // } else {
-        //     // Parent process
-        //     printf("Child Pid %d\n", pid);
-        // }
+        int pid = fork();
+        if (pid < 0) {
+            printf("Process creation failed\n");
+        } else if (pid == 0) { // Child Process
+            char *argvc[1];
+            argvc[0] = NULL;
 
+            execv("client", argvc);
+        } else {
+            // Parent process
+            printf("Child Pid %d\n", pid);
+        }
+        sleep(1);
         if (connect(sock, (struct sockaddr *)&addr,
                     sizeof(struct sockaddr_un)) < 0) {
             printf("Connection Failed %s\n", strerror(errno));
@@ -197,9 +194,7 @@ int main(int argc, char const *argv[])
     } else if (argc == 5 && strcmp(argv[1], "create") == 0) {
         spacket = get_create_payload(argv);
     } else if (argc == 2 && strcmp(argv[1], "disconnect") == 0) {
-        spacket = get_cancel_payload(STARTER_DISCONNECT);
-    } else if (argc == 2 && strcmp(argv[1], "stop") == 0) {
-        spacket = get_cancel_payload(STARTER_STOP);
+        spacket = get_disconnect_payload();
     } else {
         printf("Incorect arguments\n");
         return -1;
@@ -223,8 +218,10 @@ int main(int argc, char const *argv[])
 
     struct starter_packet_header rheader;
     if (recv_wrap(tcpwrapper, (void *)&rheader,
-                  sizeof(struct starter_packet_header)) != 0)
-        printf("error recv_wrap INIT \n");
+                  sizeof(struct starter_packet_header)) != 0) {
+        printf("error recv_wrap starter header \n");
+        return -1;
+    }
 
     if (rheader.type == STARTER_DONE || rheader.type == STARTER_ERROR) {
         struct starter_response_payload rpayload;

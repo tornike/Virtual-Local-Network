@@ -64,6 +64,7 @@ static void destroy_interface(struct vln_interface *vln_int);
 char *_installation_dir;
 char *_server_addr;
 int _server_port_temp;
+struct vln_interface *_vln_interface = NULL;
 //===========GLOBALS===========
 
 void router_listener(void *args, struct task_info *tinfo)
@@ -204,14 +205,14 @@ void *send_thread(void *arg)
 //     }
 // }
 
-void *manager_worker(struct tcpwrapper *tcpwrapper,
-                     struct vln_interface *vln_int)
+void *manager_worker(void *arg)
 {
+    struct vln_interface *vln_int = (struct vln_interface *)arg;
     struct vln_packet_header rpacket;
 
     while (1) {
         printf("recv\n");
-        if (recv_wrap(tcpwrapper, (void *)&rpacket,
+        if (recv_wrap(vln_int->server_connection, (void *)&rpacket,
                       sizeof(struct vln_packet_header)) != 0) {
             break;
         }
@@ -219,7 +220,7 @@ void *manager_worker(struct tcpwrapper *tcpwrapper,
         if (rpacket.type == ROOTNODE) {
             printf("Recived: ROOTNODE\n");
             struct vln_rootnode_payload rpayload;
-            if (recv_wrap(tcpwrapper, (void *)&rpayload,
+            if (recv_wrap(vln_int->server_connection, (void *)&rpayload,
                           sizeof(struct vln_rootnode_payload)) != 0) {
                 printf("error recv_wrap ROOTNODE \n");
                 break;
@@ -235,7 +236,7 @@ void *manager_worker(struct tcpwrapper *tcpwrapper,
         } else if (rpacket.type == UPDATES) {
             printf("Updates Received\n");
             struct vln_updates_payload rpayload;
-            if (recv_wrap(tcpwrapper, (void *)&rpayload,
+            if (recv_wrap(vln_int->server_connection, (void *)&rpayload,
                           sizeof(struct vln_updates_payload)) != 0) {
                 break;
             }
@@ -251,7 +252,7 @@ void *manager_worker(struct tcpwrapper *tcpwrapper,
         } else if (rpacket.type == UPDATEDIS) {
             printf("UPDATEDIS Received\n");
             struct vln_updatedis_payload rpayload;
-            if (recv_wrap(tcpwrapper, (void *)&rpayload,
+            if (recv_wrap(vln_int->server_connection, (void *)&rpayload,
                           sizeof(struct vln_updatedis_payload)) != 0) {
                 break;
             }
@@ -262,7 +263,7 @@ void *manager_worker(struct tcpwrapper *tcpwrapper,
         }
     }
 
-    tcpwrapper_destroy(tcpwrapper);
+    tcpwrapper_destroy(vln_int->server_connection);
 
     router_stop(vln_int->router);
     printf("Router stopped\n");
@@ -406,138 +407,130 @@ int starter_recv_connections()
         struct tcpwrapper *server_tcpwrapper = create_server_tcpwrapper();
         struct tcpwrapper *starter_tcpwrapper =
             tcpwrapper_create(starter_socket, 1024);
-        while (1) {
-            struct starter_packet_header rheader;
-            if (recv_wrap(starter_tcpwrapper, (void *)&rheader,
-                          sizeof(struct starter_packet_header)) != 0) {
-                break;
-            }
+        // while (1) {
+        struct starter_packet_header rheader;
+        if (recv_wrap(starter_tcpwrapper, (void *)&rheader,
+                      sizeof(struct starter_packet_header)) != 0) {
+            //     break;
+        }
 
-            printf("Packet %d\n", rheader.type);
+        printf("Packet %d\n", rheader.type);
+        if (rheader.type == STARTER_CREATE) {
 
-            if (rheader.type == STARTER_CREATE) {
+            struct starter_create_payload rpayload;
+            if (recv_wrap(starter_tcpwrapper, (void *)&rpayload,
+                          sizeof(struct starter_create_payload)) != 0)
+                printf("error recv_wrap starter create \n");
 
-                struct starter_create_payload rpayload;
-                if (recv_wrap(starter_tcpwrapper, (void *)&rpayload,
-                              sizeof(struct starter_create_payload)) != 0)
-                    printf("error recv_wrap starter create \n");
+            uint8_t spacket[sizeof(struct vln_packet_header) +
+                            sizeof(struct vln_create_payload)];
+            struct vln_packet_header *sheader =
+                (struct vln_packet_header *)spacket;
 
-                uint8_t spacket[sizeof(struct vln_packet_header) +
-                                sizeof(struct vln_create_payload)];
-                struct vln_packet_header *sheader =
-                    (struct vln_packet_header *)spacket;
+            sheader->type = CREATE;
+            sheader->payload_length = htonl(sizeof(struct vln_create_payload));
 
-                sheader->type = CREATE;
-                sheader->payload_length =
-                    htonl(sizeof(struct vln_create_payload));
+            struct vln_create_payload *spayload =
+                (struct vln_create_payload *)PACKET_PAYLOAD(spacket);
+            printf("net: %s\n", rpayload.subnet);
+            printf("bit: %s\n", rpayload.bit);
+            strcpy(spayload->addres, rpayload.subnet);
+            strcpy(spayload->bit, rpayload.bit);
+            strcpy(spayload->network_name, rpayload.networck_name);
+            strcpy(spayload->network_password, rpayload.networck_password);
 
-                struct vln_create_payload *spayload =
-                    (struct vln_create_payload *)PACKET_PAYLOAD(spacket);
-                printf("net: %s\n", rpayload.subnet);
-                printf("bit: %s\n", rpayload.bit);
-                strcpy(spayload->addres, rpayload.subnet);
-                strcpy(spayload->bit, rpayload.bit);
-                strcpy(spayload->network_name, rpayload.networck_name);
-                strcpy(spayload->network_password, rpayload.networck_password);
-
-                if (send_wrap(server_tcpwrapper, (void *)spacket,
-                              sizeof(struct vln_packet_header) +
-                                  htonl(sheader->payload_length)) != 0) {
-                    printf("error send_wrap create\n");
-                } else {
-                    printf("send_wrap create\n");
-                }
-
-            } else if (rheader.type == STARTER_CONNECT) {
-
-                struct starter_connect_payload rpayload;
-                if (recv_wrap(starter_tcpwrapper, (void *)&rpayload,
-                              sizeof(struct starter_connect_payload)) != 0)
-                    printf("error recv_wrap starter connect \n");
-
-                uint8_t spacket[sizeof(struct vln_packet_header) +
-                                sizeof(struct vln_connect_payload)];
-                struct vln_packet_header *sheader =
-                    (struct vln_packet_header *)spacket;
-
-                sheader->type = CONNECT;
-                sheader->payload_length =
-                    htonl(sizeof(struct vln_connect_payload));
-
-                struct vln_connect_payload *spayload =
-                    (struct vln_connect_payload *)PACKET_PAYLOAD(spacket);
-
-                strcpy(spayload->network_name, rpayload.networck_name);
-                strcpy(spayload->network_password, rpayload.networck_password);
-                if (send_wrap(server_tcpwrapper, (void *)spacket,
-                              sizeof(struct vln_packet_header) +
-                                  htonl(sheader->payload_length)) != 0) {
-                    printf("error send_wrap connect\n");
-                } else {
-                    printf("send_wrap connect\n");
-                }
-
-            } else if (rheader.type == STARTER_DISCONNECT) {
-                printf("Discnnect\n");
-                // if (_interface != NULL) {
-                //     // TODO
-                // }
-                send_starter_response(starter_tcpwrapper, STARTER_DONE);
-                break;
-            } else if (rheader.type == STARTER_STOP) {
-                printf("Stop\n");
-                send_starter_response(starter_tcpwrapper, STARTER_DONE);
-                break;
-                // TODO yvelafris washlaa dasaweri
+            if (send_wrap(server_tcpwrapper, (void *)spacket,
+                          sizeof(struct vln_packet_header) +
+                              htonl(sheader->payload_length)) != 0) {
+                printf("error send_wrap create\n");
             } else {
-                printf("ERROR: Unknown Packet Type Send %d\n", rheader.type);
-                send_starter_response(starter_tcpwrapper, STARTER_ERROR);
-                break;
+                printf("send_wrap create\n");
             }
 
-            if (rheader.type == STARTER_CONNECT ||
-                rheader.type == STARTER_CREATE) {
-                struct vln_packet_header rpacket;
-                if (recv_wrap(server_tcpwrapper, (void *)&rpacket,
-                              sizeof(struct vln_packet_header)) !=
-                    0) { // TODO TIMEOUT
-                    perror("accept");
-                    exit(EXIT_FAILURE);
+        } else if (rheader.type == STARTER_CONNECT) {
+
+            struct starter_connect_payload rpayload;
+            if (recv_wrap(starter_tcpwrapper, (void *)&rpayload,
+                          sizeof(struct starter_connect_payload)) != 0)
+                printf("error recv_wrap starter connect \n");
+
+            uint8_t spacket[sizeof(struct vln_packet_header) +
+                            sizeof(struct vln_connect_payload)];
+            struct vln_packet_header *sheader =
+                (struct vln_packet_header *)spacket;
+
+            sheader->type = CONNECT;
+            sheader->payload_length = htonl(sizeof(struct vln_connect_payload));
+
+            struct vln_connect_payload *spayload =
+                (struct vln_connect_payload *)PACKET_PAYLOAD(spacket);
+
+            strcpy(spayload->network_name, rpayload.networck_name);
+            strcpy(spayload->network_password, rpayload.networck_password);
+            if (send_wrap(server_tcpwrapper, (void *)spacket,
+                          sizeof(struct vln_packet_header) +
+                              htonl(sheader->payload_length)) != 0) {
+                printf("error send_wrap connect\n");
+            } else {
+                printf("send_wrap connect\n");
+            }
+
+        } else if (rheader.type == STARTER_DISCONNECT) {
+            printf("Discnnect\n");
+            if (_vln_interface != NULL) {
+                tcpwrapper_set_die_flag(_vln_interface->server_connection);
+            }
+            send_starter_response(starter_tcpwrapper, STARTER_DONE);
+            // break;
+        } else {
+            printf("ERROR: Unknown Packet Type Send %d\n", rheader.type);
+            send_starter_response(starter_tcpwrapper, STARTER_ERROR);
+            // break;
+        }
+
+        if (rheader.type == STARTER_CONNECT || rheader.type == STARTER_CREATE) {
+            struct vln_packet_header rpacket;
+            if (recv_wrap(server_tcpwrapper, (void *)&rpacket,
+                          sizeof(struct vln_packet_header)) !=
+                0) { // TODO TIMEOUT
+                perror("accept");
+                exit(EXIT_FAILURE);
+            }
+
+            printf("Type: %d\n", rpacket.type);
+            if (rpacket.type == INIT) {
+                send_starter_response(starter_tcpwrapper, STARTER_DONE);
+                printf("Received INIT\n");
+                struct vln_init_payload rpayload;
+                if (recv_wrap(server_tcpwrapper, (void *)&rpayload,
+                              sizeof(struct vln_init_payload)) != 0)
+                    printf("error recv_wrap INIT \n");
+
+                _vln_interface = create_interface(
+                    rpayload.vaddr, rpayload.broadaddr, rpayload.maskaddr,
+                    server_tcpwrapper); // TODO hash
+
+                pthread_t worker;
+                pthread_create(&worker, NULL, manager_worker,
+                               (void *)_vln_interface);
+                // manager_worker(server_tcpwrapper, vln_int);
+
+            } else if (rpacket.type == ERROR) {
+
+                printf("ERROR Received\n");
+                struct vln_error_payload rpayload;
+                if (recv_wrap(server_tcpwrapper, (void *)&rpayload,
+                              sizeof(struct vln_error_payload)) != 0) {
+                    // TODO
                 }
+                printf("error: %d\n", rpayload.type);
+                send_starter_response(starter_tcpwrapper, STARTER_ERROR);
 
-                printf("Type: %d\n", rpacket.type);
-                if (rpacket.type == INIT) {
-                    send_starter_response(starter_tcpwrapper, STARTER_DONE);
-                    printf("Received INIT\n");
-                    struct vln_init_payload rpayload;
-                    if (recv_wrap(server_tcpwrapper, (void *)&rpayload,
-                                  sizeof(struct vln_init_payload)) != 0)
-                        printf("error recv_wrap INIT \n");
-
-                    struct vln_interface *vln_int = create_interface(
-                        rpayload.vaddr, rpayload.broadaddr, rpayload.maskaddr,
-                        server_tcpwrapper); // TODO hash
-
-                    pthread_t t;
-                    // pthread_create(&t, NULL, manager_worker, (void *));
-                    manager_worker(server_tcpwrapper, vln_int);
-
-                } else if (rpacket.type == ERROR) {
-
-                    printf("ERROR Received\n");
-                    struct vln_error_payload rpayload;
-                    if (recv_wrap(server_tcpwrapper, (void *)&rpayload,
-                                  sizeof(struct vln_error_payload)) != 0) {
-                        // TODO
-                    }
-                    printf("error: %d\n", rpayload.type);
-                    send_starter_response(starter_tcpwrapper, STARTER_ERROR);
-
-                } else {
-                    send_starter_response(starter_tcpwrapper, STARTER_ERROR);
-                }
+            } else {
+                send_starter_response(starter_tcpwrapper, STARTER_ERROR);
             }
         }
+        // }
 
         tcpwrapper_destroy(starter_tcpwrapper);
     }

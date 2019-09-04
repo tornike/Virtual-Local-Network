@@ -10,7 +10,6 @@
 #define STARTER_CREATE 60
 #define STARTER_CONNECT 70
 #define STARTER_DISCONNECT 80
-#define STARTER_STOP 90
 #define STARTER_ERROR 96
 #define STARTER_DONE 69
 /* DB Protocol */
