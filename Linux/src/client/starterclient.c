@@ -2,6 +2,7 @@
 #include "starterprotocol.h"
 #include <arpa/inet.h>
 #include <errno.h>
+#include <json-c/json.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -131,6 +132,27 @@ int main(int argc, char const *argv[])
     int sock = 0;
     struct sockaddr_un addr;
 
+    FILE *fp;
+    char buffer[1024];
+    struct json_object *parsed_json;
+    struct json_object *installation_directory;
+
+    fp = fopen("vln.config", "r");
+
+    if (fp == NULL) {
+        return -1;
+    }
+    fread(buffer, 1024, 1, fp);
+    fclose(fp);
+
+    parsed_json = json_tokener_parse(buffer);
+
+    json_object_object_get_ex(parsed_json, "installation_directory",
+                              &installation_directory);
+    if (installation_directory == NULL) {
+        return -1;
+    }
+
     if ((sock = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
         printf("\n Socket creation error \n");
         return -1;
@@ -139,7 +161,8 @@ int main(int argc, char const *argv[])
     memset(&addr, 0, sizeof(addr));
 
     addr.sun_family = AF_UNIX;
-    strcpy(addr.sun_path, PATH);
+    strcpy(addr.sun_path,
+           (char *)json_object_get_string(installation_directory));
 
     if (connect(sock, (struct sockaddr *)&addr, sizeof(struct sockaddr_un)) <
         0) {

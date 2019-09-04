@@ -554,9 +554,8 @@ int read_config()
     struct json_object *server_port;
     struct json_object *installation_directory;
 
-    fp = fopen(
-        "/home/luka/Desktop/Virtual-Local-Network/Linux/src/client/vln.config",
-        "r"); // TODO
+    fp = fopen("vln.config",
+               "r"); // TODO
 
     if (fp == NULL) {
         return -1;

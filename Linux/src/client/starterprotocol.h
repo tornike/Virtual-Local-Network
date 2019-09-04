@@ -3,7 +3,6 @@
 
 #include <stdint.h>
 
-#define PATH "/home/luka/Desktop/service/socket/socket1"
 #define MIN_PASSWORD_LENGTH 6
 #define MIN_NAME_LENGTH 4
 #define MAX_LENGTH 16
