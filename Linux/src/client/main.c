@@ -397,13 +397,13 @@ int starter_recv_connections()
         perror("listen");
         exit(EXIT_FAILURE);
     }
-    struct tcpwrapper *server_tcpwrapper = create_server_tcpwrapper();
+
     while (1) {
         if ((starter_socket = accept(starter_sfd, NULL, NULL)) < 1) {
             perror("accept");
             exit(EXIT_FAILURE);
         }
-
+        struct tcpwrapper *server_tcpwrapper = create_server_tcpwrapper();
         struct tcpwrapper *starter_tcpwrapper =
             tcpwrapper_create(starter_socket, 1024);
         while (1) {
