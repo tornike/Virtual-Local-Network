@@ -42,10 +42,12 @@ void *executor_worker(void *args)
 
         free(tiw);
         if (cur_task_info->operation == DIE) {
+            free(cur_task_info);
             break;
+        } else {
+            executor->handler(executor->handler_args, cur_task_info);
+            free(cur_task_info);
         }
-        executor->handler(executor->handler_args, cur_task_info);
-        free(cur_task_info);
     }
     return NULL;
 }

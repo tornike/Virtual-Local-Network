@@ -198,7 +198,8 @@ void router_destroy(struct router *router)
     pthread_rwlock_wrlock(&router->routing_table_lock);
     for (int i = 0; i <= router->subnet_size; i++) {
         if (router->routing_table[i] != NULL) {
-            destroy_connection(router->routing_table[i]);
+            if (router->routing_table[i]->vaddr == router->vaddr)
+                destroy_connection(router->routing_table[i]);
         }
     }
     pthread_rwlock_unlock(&router->routing_table_lock);
@@ -287,9 +288,7 @@ void router_remove_connection(struct router *router, uint32_t vaddr)
 
     struct router_connection *con;
     pthread_rwlock_wrlock(&router->routing_table_lock);
-    printf("Seg1 %d %u\n", key, vaddr);
     con = router->routing_table[key];
-    printf("Seg1.5\n");
     router->routing_table[key] = NULL;
     pthread_rwlock_unlock(&router->routing_table_lock);
 
@@ -297,6 +296,17 @@ void router_remove_connection(struct router *router, uint32_t vaddr)
     if (con != NULL) {
         destroy_connection(con); // TODO Correctly remove from epoll
     }
+}
+
+void router_cremove_connection(struct router *router, uint32_t vaddr)
+{
+    int key = vaddr - router->network_addr;
+
+    struct router_connection *con;
+    pthread_rwlock_wrlock(&router->routing_table_lock);
+    con = router->routing_table[key];
+    router->routing_table[key] = NULL;
+    pthread_rwlock_unlock(&router->routing_table_lock);
 }
 
 struct router_buffer_slot *router_get_free_slot(struct router *router)
@@ -444,24 +454,15 @@ static void *recv_worker(void *arg)
     struct router_buffer_slot *slot;
     while (1) {
         struct router_buffer_slot *tmp;
-        int c = 0;
-        pthread_mutex_lock(&router->free_slots_lock);
-        DL_COUNT(router->free_slots, tmp, c);
-        pthread_mutex_unlock(&router->free_slots_lock);
-
-        printf("Free Buffers %d\n", c);
 
         slot = router_get_free_slot(router); // waiting point
 
         if (slot == NULL)
             break;
 
-        printf("Waiting on RecvFrom\n");
         slot->used_size =
             recvfrom(router->sockfd, slot->buffer, SLOT_SIZE, 0,
                      (struct sockaddr *)&raddr, &slen); // waiting point
-        printf("RECVED FROM PORT AFTER RECVFROM %d\n", ntohs(raddr.sin_port));
-        printf("Returned from RecvFrom\n");
 
         if (slot->used_size < 1) {
             router_add_free_slot(router, slot);
@@ -487,8 +488,8 @@ static void *recv_worker(void *arg)
             pthread_rwlock_rdlock(&router->routing_table_lock);
             timerfd_settime(router->routing_table[key]->rkinfo->timerfd, 0,
                             &iti, NULL);
-            printf("rtimer reset %d\n",
-                   router->routing_table[key]->rkinfo->timerfd);
+            // printf("rtimer reset %d\n",
+            //        router->routing_table[key]->rkinfo->timerfd);
             pthread_rwlock_unlock(&router->routing_table_lock);
 
             // printf("Data Recvd!!! %u %u\n", vaddr, slot->used_size);
@@ -506,7 +507,7 @@ static void *recv_worker(void *arg)
                 (struct vln_data_keepalive_payload *)DATA_PACKET_PAYLOAD(
                     slot->buffer);
 
-            printf("RECVED FROM PORT %d\n", ntohs(raddr.sin_port));
+            // printf("RECVED FROM PORT %d\n", ntohs(raddr.sin_port));
 
             vaddr = ntohl(rpayload->vaddr);
             key = vaddr - router->network_addr;
@@ -514,8 +515,8 @@ static void *recv_worker(void *arg)
             pthread_rwlock_rdlock(&router->routing_table_lock);
             timerfd_settime(router->routing_table[key]->rkinfo->timerfd, 0,
                             &iti, NULL);
-            printf("rtimer reset %d\n",
-                   router->routing_table[key]->rkinfo->timerfd);
+            // printf("rtimer reset %d\n",
+            //        router->routing_table[key]->rkinfo->timerfd);
             pthread_rwlock_unlock(&router->routing_table_lock);
 
             struct router_connection *pen_con;
@@ -646,7 +647,7 @@ static void *send_worker(void *arg)
             printf("BROADCAST %u\n", vaddr);
             // TODO
         } else {
-            printf("OUT OF RANGE %u\n", vaddr);
+            // printf("OUT OF RANGE %u\n", vaddr);
             // WHAT TO DO???
         }
 
@@ -673,7 +674,6 @@ static void *keep_alive_worker(void *arg)
     while (1) {
         event_count =
             epoll_wait(router->epoll_fd, router->events, MAX_EVENTS, -1);
-        printf("EPOLL EVENT COUNT %d\n", event_count);
         for (i = 0; i < event_count; i++) {
             kinfo = router->events[i].data.ptr;
 
@@ -795,9 +795,8 @@ void destroy_connection(struct router_connection *con)
     pthread_rwlock_wrlock(&con->skinfo->con_lock);
     con->skinfo->con = NULL;
     timerfd_settime(con->skinfo->timerfd, 0, &iti, NULL);
-    printf("Seg4.5\n");
     pthread_rwlock_unlock(&con->skinfo->con_lock);
-    printf("Seg4\n");
+
     pthread_rwlock_wrlock(&con->rkinfo->con_lock);
     con->rkinfo->con = NULL;
     timerfd_settime(con->rkinfo->timerfd, 0, &iti, NULL);

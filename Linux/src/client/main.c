@@ -65,6 +65,7 @@ char *_installation_dir;
 char *_server_addr;
 int _server_port_temp;
 struct vln_interface *_vln_interface = NULL;
+pthread_t _worker;
 //===========GLOBALS===========
 
 void router_listener(void *args, struct task_info *tinfo)
@@ -167,44 +168,6 @@ void *send_thread(void *arg)
     return NULL;
 }
 
-// if some code needed.
-// void manager_sender_handler(void *args, struct task_info *task_info)
-// {
-//     struct tcpwrapper *tcpwrapper = (struct tcpwrapper *)args;
-
-//     struct vln_packet_header *spacket;
-//     switch (task_info->operation) {
-//     case INIT: {
-//         printf("Send INIT\n");
-//         spacket = (struct vln_packet_header *)task_info->args;
-//         if (send_wrap(tcpwrapper, (void *)spacket,
-//                       sizeof(struct vln_packet_header) +
-//                           ntohl(spacket->payload_length)) != 0) {
-//             printf("error send_wrap INIT\n");
-//         } else {
-//             printf("send_wrap INIT\n");
-//         }
-//         free(spacket);
-//         break;
-//     }
-//     case UPDATES: {
-//         spacket = (struct vln_packet_header *)task_info->args;
-//         if (send_wrap(tcpwrapper, (void *)task_info->args,
-//                       sizeof(struct vln_packet_header) +
-//                           ntohl(spacket->payload_length)) != 0) {
-//             printf("error send_wrap INIT\n");
-//         } else {
-//             printf("send_wrap INIT\n");
-//         }
-//         free(spacket);
-//         break;
-//     }
-//     default:
-//         printf("ERROR: Unknown Packet Type\n");
-//         break;
-//     }
-// }
-
 void *manager_worker(void *arg)
 {
     struct vln_interface *vln_int = (struct vln_interface *)arg;
@@ -256,7 +219,7 @@ void *manager_worker(void *arg)
                           sizeof(struct vln_updatedis_payload)) != 0) {
                 break;
             }
-            router_remove_connection(vln_int->router, ntohl(rpayload.vaddr));
+            router_cremove_connection(vln_int->router, ntohl(rpayload.vaddr));
         } else {
             printf("ERROR: Unknown Packet Type\n");
             break;
@@ -279,6 +242,8 @@ void *manager_worker(void *arg)
     router_destroy(vln_int->router);
 
     destroy_interface(vln_int);
+
+    _vln_interface = NULL;
 
     printf("client died\n");
 
@@ -510,8 +475,7 @@ int starter_recv_connections()
                     rpayload.vaddr, rpayload.broadaddr, rpayload.maskaddr,
                     server_tcpwrapper); // TODO hash
 
-                pthread_t worker;
-                pthread_create(&worker, NULL, manager_worker,
+                pthread_create(&_worker, NULL, manager_worker,
                                (void *)_vln_interface);
                 // manager_worker(server_tcpwrapper, vln_int);
 

@@ -41,6 +41,8 @@ void router_try_connection(struct router *, uint32_t vaddr, uint32_t raddr,
 
 void router_remove_connection(struct router *, uint32_t vaddr);
 
+void router_cremove_connection(struct router *, uint32_t vaddr);
+
 struct router_buffer_slot *router_get_free_slot(struct router *);
 
 void router_add_free_slot(struct router *, struct router_buffer_slot *);
