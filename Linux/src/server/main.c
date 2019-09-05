@@ -52,7 +52,7 @@ struct vln_network {
     struct router *router;
     uint32_t router_addr;
     uint16_t router_port;
-    char network_name[16];
+    char network_name[REQUEST_MAX_LENGTH];
 
     UT_hash_handle hh;
 
@@ -251,9 +251,9 @@ void *manager_worker(void *arg)
                 printf("INSERT error\n");
                 return NULL;
             }
-            char argv1[16];
-            char argv2[16];
-            char argv3[16];
+            char argv1[REQUEST_MAX_LENGTH];
+            char argv2[REQUEST_MAX_LENGTH];
+            char argv3[REQUEST_MAX_LENGTH];
 
             strcpy(argv1, rpayload.addres);
             strcpy(argv2, rpayload.bit);

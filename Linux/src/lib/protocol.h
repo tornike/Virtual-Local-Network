@@ -10,7 +10,6 @@
 #define RETRANSMIT 12
 
 #define CONNECT 5 /* Request For Connect */
-#define CONNECT_APPROVE 3
 #define ROOTNODE 13
 #define UPDATES 14
 #define UPDATEDIS 15
@@ -30,6 +29,9 @@
 /* Flags */
 #define VLN_VIRTUALADDR 128
 #define VLN_SERVER 64
+
+#define REQUEST_MAX_LENGTH 17
+#define NETWORK_BIT 3
 
 typedef uint8_t vln_packet_type;
 
@@ -105,15 +107,15 @@ struct vln_rootnode_payload {
 // } __attribute__((packed));
 
 struct vln_connect_payload { /* Connect packet payload for client */
-    char network_name[16];
-    char network_password[16];
+    char network_name[REQUEST_MAX_LENGTH];
+    char network_password[REQUEST_MAX_LENGTH];
 } __attribute__((packed));
 
 struct vln_create_payload {
-    char network_name[16];
-    char network_password[16];
-    char addres[16];
-    char bit[2];
+    char network_name[REQUEST_MAX_LENGTH];
+    char network_password[REQUEST_MAX_LENGTH];
+    char addres[REQUEST_MAX_LENGTH];
+    char bit[NETWORK_BIT];
     // DOTO
 } __attribute__((packed));
 

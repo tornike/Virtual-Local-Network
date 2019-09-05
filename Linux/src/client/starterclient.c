@@ -13,6 +13,7 @@
 void *get_disconnect_payload()
 {
     uint8_t *spacket = malloc(sizeof(struct starter_packet_header));
+    memset(spacket, 0, sizeof(spacket));
 
     struct starter_packet_header *sheader =
         (struct starter_packet_header *)spacket;
@@ -41,6 +42,7 @@ void *get_connect_payload(char const *argv[])
     }
     uint8_t *spacket = malloc(sizeof(struct starter_packet_header) +
                               sizeof(struct starter_connect_payload));
+    memset(spacket, 0, sizeof(spacket));
     struct starter_packet_header *sheader =
         (struct starter_packet_header *)spacket;
     sheader->type = STARTER_CONNECT;
@@ -100,6 +102,7 @@ void *get_create_payload(char const *argv[])
 
     uint8_t *spacket = malloc(sizeof(struct starter_packet_header) +
                               sizeof(struct starter_create_payload));
+    memset(spacket, 0, sizeof(spacket));
     struct starter_packet_header *sheader =
         (struct starter_packet_header *)spacket;
     sheader->type = STARTER_CREATE;
@@ -205,7 +208,7 @@ int main(int argc, char const *argv[])
             return -1;
         }
     }
-    struct tcpwrapper *tcpwrapper = tcpwrapper_create(sock, 2048);
+    struct tcpwrapper *tcpwrapper = tcpwrapper_create(sock, 1024);
 
     struct starter_packet_header *sheader =
         (struct starter_packet_header *)spacket;

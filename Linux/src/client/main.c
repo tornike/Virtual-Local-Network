@@ -406,10 +406,8 @@ int starter_recv_connections()
                 strcpy(spayload->bit, rpayload.bit);
                 strcpy(spayload->network_name, rpayload.networck_name);
                 strcpy(spayload->network_password, rpayload.networck_password);
-
                 if (send_wrap(server_tcpwrapper, (void *)spacket,
-                              sizeof(struct vln_packet_header) +
-                                  htonl(sheader->payload_length)) != 0) {
+                              sizeof(spacket)) != 0) {
                     printf("error send_wrap create\n");
                 } else {
                     printf("send_wrap create\n");
@@ -441,8 +439,7 @@ int starter_recv_connections()
                 strcpy(spayload->network_name, rpayload.networck_name);
                 strcpy(spayload->network_password, rpayload.networck_password);
                 if (send_wrap(server_tcpwrapper, (void *)spacket,
-                              sizeof(struct vln_packet_header) +
-                                  htonl(sheader->payload_length)) != 0) {
+                              sizeof(spacket)) != 0) {
                     printf("error send_wrap connect\n");
                 } else {
                     printf("send_wrap connect\n");
