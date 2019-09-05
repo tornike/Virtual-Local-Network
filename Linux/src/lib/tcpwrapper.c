@@ -90,7 +90,7 @@ int recv_wrap(struct tcpwrapper *wrapper, void *buffer, size_t size)
                 return 1;
             }
             if (recv_tmp == 0) {
-                printf("Peer Died\n");
+                printf("Peer Died %d %s\n", errno, strerror(errno));
                 return 1;
             }
             wrapper->start_point = 0;
