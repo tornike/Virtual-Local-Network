@@ -65,6 +65,7 @@ char *_server_addr;
 int _server_port_temp;
 struct vln_interface *_vln_interfaces = NULL;
 pthread_t _worker;
+pthread_mutex_t _interface_lock;
 //===========GLOBALS===========
 
 void router_listener(void *args, struct task_info *tinfo)
@@ -242,7 +243,9 @@ void *manager_worker(void *arg)
 
     destroy_interface(vln_int);
 
+    pthread_mutex_lock(&_interface_lock);
     _vln_interfaces = NULL;
+    pthread_mutex_unlock(&_interface_lock);
 
     printf("client died\n");
 
@@ -342,6 +345,7 @@ int starter_recv_connections()
 {
     int starter_sfd, starter_socket;
     struct sockaddr_un address;
+    pthread_mutex_init(&_interface_lock, NULL);
 
     if ((starter_sfd = socket(AF_UNIX, SOCK_STREAM, 0)) == 0) {
         perror("starter_sfd failed");
@@ -382,7 +386,9 @@ int starter_recv_connections()
 
         printf("Packet %d\n", rheader.type);
         if (rheader.type == STARTER_CREATE) {
+            pthread_mutex_lock(&_interface_lock);
             if (_vln_interfaces == NULL) {
+                pthread_mutex_unlock(&_interface_lock);
 
                 struct starter_create_payload rpayload;
                 if (recv_wrap(starter_tcpwrapper, (void *)&rpayload,
@@ -413,11 +419,14 @@ int starter_recv_connections()
                     printf("send_wrap create\n");
                 }
             } else {
+                pthread_mutex_unlock(&_interface_lock);
                 send_starter_response(starter_tcpwrapper, STARTER_EXIST);
             }
 
         } else if (rheader.type == STARTER_CONNECT) {
+            pthread_mutex_lock(&_interface_lock);
             if (_vln_interfaces == NULL) {
+                pthread_mutex_unlock(&_interface_lock);
 
                 struct starter_connect_payload rpayload;
                 if (recv_wrap(starter_tcpwrapper, (void *)&rpayload,
@@ -445,14 +454,17 @@ int starter_recv_connections()
                     printf("send_wrap connect\n");
                 }
             } else {
+                pthread_mutex_unlock(&_interface_lock);
                 send_starter_response(starter_tcpwrapper, STARTER_EXIST);
             }
 
         } else if (rheader.type == STARTER_DISCONNECT) {
             printf("Discnnect\n");
+            pthread_mutex_lock(&_interface_lock);
             if (_vln_interfaces != NULL) {
                 tcpwrapper_set_die_flag(_vln_interfaces->server_connection);
             }
+            pthread_mutex_unlock(&_interface_lock);
             send_starter_response(starter_tcpwrapper, STARTER_DONE);
             break;
         } else {
@@ -460,10 +472,13 @@ int starter_recv_connections()
             send_starter_response(starter_tcpwrapper, STARTER_ERROR);
             // break;
         }
-
+        pthread_mutex_lock(&_interface_lock);
         if ((rheader.type == STARTER_CONNECT ||
              rheader.type == STARTER_CREATE) &&
             _vln_interfaces == NULL) {
+
+            pthread_mutex_unlock(&_interface_lock);
+
             struct vln_packet_header rpacket;
             if (recv_wrap(server_tcpwrapper, (void *)&rpacket,
                           sizeof(struct vln_packet_header)) !=
@@ -480,10 +495,11 @@ int starter_recv_connections()
                 if (recv_wrap(server_tcpwrapper, (void *)&rpayload,
                               sizeof(struct vln_init_payload)) != 0)
                     printf("error recv_wrap INIT \n");
-
+                pthread_mutex_lock(&_interface_lock);
                 _vln_interfaces = create_interface(
                     rpayload.vaddr, rpayload.broadaddr, rpayload.maskaddr,
                     server_tcpwrapper); // TODO hash
+                pthread_mutex_unlock(&_interface_lock);
 
                 pthread_create(&_worker, NULL, manager_worker,
                                (void *)_vln_interfaces);
@@ -503,11 +519,14 @@ int starter_recv_connections()
             } else {
                 send_starter_response(starter_tcpwrapper, STARTER_ERROR);
             }
+        } else {
+            pthread_mutex_unlock(&_interface_lock);
         }
         // }
 
         tcpwrapper_destroy(starter_tcpwrapper);
     }
+    pthread_mutex_destroy(&_interface_lock);
     close(starter_sfd);
     return 0;
 }
