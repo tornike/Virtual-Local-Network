@@ -26,6 +26,7 @@
 #define UNKNOWN_PACKET_TYPE 20
 #define CREATE 21
 #define INSERT_ERROR 22
+#define SUBNET_IS_FULL 24
 
 /* Flags */
 #define VLN_VIRTUALADDR 128

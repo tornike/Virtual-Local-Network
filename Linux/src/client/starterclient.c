@@ -140,6 +140,7 @@ int main(int argc, char const *argv[])
     fp = fopen("vln.config", "r");
 
     if (fp == NULL) {
+        printf("Incorrect config\n");
         return -1;
     }
     fread(buffer, 1024, 1, fp);
@@ -150,11 +151,27 @@ int main(int argc, char const *argv[])
     json_object_object_get_ex(parsed_json, "installation_directory",
                               &installation_directory);
     if (installation_directory == NULL) {
+        printf("Incorrect config\n");
+        return -1;
+    }
+
+    if (argc == 4 && strcmp(argv[1], "connect") == 0) {
+        spacket = get_connect_payload(argv);
+    } else if (argc == 5 && strcmp(argv[1], "create") == 0) {
+        spacket = get_create_payload(argv);
+    } else if (argc == 2 && strcmp(argv[1], "disconnect") == 0) {
+        spacket = get_disconnect_payload();
+    } else {
+        printf("Incorect arguments\n");
+        return -1;
+    }
+    if (spacket == NULL) {
         return -1;
     }
 
     if ((sock = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
         printf("\n Socket creation error \n");
+        free(spacket);
         return -1;
     }
 
@@ -174,34 +191,22 @@ int main(int argc, char const *argv[])
         } else if (pid == 0) { // Child Process
             char *argvc[1];
             argvc[0] = NULL;
-    
+
             execv("client", argvc);
         } else {
             // Parent process
             printf("Child Pid %d\n", pid);
         }
-        sleep(1);
+        sleep(2);
         if (connect(sock, (struct sockaddr *)&addr,
                     sizeof(struct sockaddr_un)) < 0) {
             printf("Connection Failed %s\n", strerror(errno));
+            free(spacket);
             return -1;
         }
     }
     struct tcpwrapper *tcpwrapper = tcpwrapper_create(sock, 2048);
 
-    if (argc == 4 && strcmp(argv[1], "connect") == 0) {
-        spacket = get_connect_payload(argv);
-    } else if (argc == 5 && strcmp(argv[1], "create") == 0) {
-        spacket = get_create_payload(argv);
-    } else if (argc == 2 && strcmp(argv[1], "disconnect") == 0) {
-        spacket = get_disconnect_payload();
-    } else {
-        printf("Incorect arguments\n");
-        return -1;
-    }
-    if (spacket == NULL) {
-        return -1;
-    }
     struct starter_packet_header *sheader =
         (struct starter_packet_header *)spacket;
 

@@ -291,6 +291,18 @@ void *manager_worker(void *arg)
 
     pthread_mutex_lock(&curr_net->connections_lock);
     scon->vaddr = get_available_address(curr_net); // TODO: no more address.
+    if (scon->vaddr == 0) {
+        send_error(SUBNET_IS_FULL, tcpwrapper);
+
+        printf("Subnet is full \n");
+
+        tcpwrapper_destroy(tcpwrapper);
+        close(sockfd);
+        free(scon);
+        pthread_mutex_unlock(&curr_net->connections_lock);
+
+        return NULL;
+    }
     HASH_ADD_INT(curr_net->connections, vaddr, scon);
     pthread_mutex_unlock(&curr_net->connections_lock);
 
