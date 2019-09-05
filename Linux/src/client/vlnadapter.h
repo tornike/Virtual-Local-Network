@@ -4,10 +4,11 @@
 #include <stdint.h>
 
 #define ADAPTER_NAME "testint1"
+#define ADAPTER_NAME_SIZE 17
 
 struct vln_adapter {
     int fd;
-    char name[16];
+    char name[ADAPTER_NAME_SIZE];
 };
 
 struct vln_adapter *vln_adapter_create(int flags);

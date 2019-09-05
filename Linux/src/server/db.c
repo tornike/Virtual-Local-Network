@@ -101,7 +101,7 @@ void *network_is_exists(sqlite3 *db, char *name, char *password)
     int step = sqlite3_step(data);
 
     if (step == SQLITE_ROW) {
-        return_value = malloc(16);
+        return_value = malloc(NAME_SIZE);
         strcpy(return_value,
                (const char *)sqlite3_column_text(data, 3)); // NAME
 

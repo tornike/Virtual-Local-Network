@@ -18,7 +18,7 @@
 #define UADDR 10
 
 /* DB Protocol */
-#define ERROR 17
+#define ERROR 27
 #define NETWORK_NOT_EXISTS 18
 #define NAME_OR_PASSWOR 19
 #define UNKNOWN_PACKET_TYPE 20

@@ -176,6 +176,7 @@ void send_error(vln_packet_type type, struct tcpwrapper *tcpwrapper)
 {
     uint8_t serror[sizeof(struct vln_packet_header) +
                    sizeof(struct vln_error_payload)];
+    memset(serror, 0, sizeof(serror));
     struct vln_packet_header *sheader = (struct vln_packet_header *)serror;
     sheader->payload_length = htonl(sizeof(struct vln_error_payload));
     sheader->type = ERROR;

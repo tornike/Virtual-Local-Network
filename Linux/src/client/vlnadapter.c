@@ -35,7 +35,7 @@ struct vln_adapter *vln_adapter_create(int flags)
         return NULL;
     }
 
-    memset(adapter->name, 0, 16);
+    memset(adapter->name, 0, ADAPTER_NAME_SIZE);
     strcpy(adapter->name, ADAPTER_NAME);
 
     memset(&ifr, 0, sizeof(struct ifreq));

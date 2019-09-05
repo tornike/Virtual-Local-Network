@@ -15,7 +15,7 @@
 #define STARTER_EXIST 68
 #define BIT 3
 /* DB Protocol */
-#define SERVER_ERROR 17
+#define SERVER_ERROR 31
 #define SERVER_NAME_OR_PASSWOR 19
 #define SERVER_UNKNOWN_PACKET_TYPE 20
 #define SERVER_CREATE 21

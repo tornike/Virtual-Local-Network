@@ -4,6 +4,7 @@
 #include <sqlite3.h>
 
 #define DB_NAME "test.db"
+#define NAME_SIZE 17
 
 sqlite3 *get_db();
 

@@ -63,7 +63,7 @@ static void destroy_interface(struct vln_interface *vln_int);
 char *_installation_dir;
 char *_server_addr;
 int _server_port_temp;
-struct vln_interface *_vln_interfaces = NULL;
+struct vln_interface *_vln_interfaces;
 pthread_t _worker;
 pthread_mutex_t _interface_lock;
 //===========GLOBALS===========
@@ -327,6 +327,7 @@ int send_starter_response(struct tcpwrapper *starter_tcpwrapper,
 {
     uint8_t spacket[sizeof(struct starter_packet_header) +
                     sizeof(struct starter_response_payload)];
+    memset(spacket, 0, sizeof(spacket));
     struct starter_packet_header *sheader =
         (struct starter_packet_header *)spacket;
     sheader->type = type;
@@ -368,7 +369,7 @@ int starter_recv_connections()
     }
 
     struct tcpwrapper *server_tcpwrapper = create_server_tcpwrapper();
-
+    struct vln_interface *interfaces_checker;
     while (1) {
         if ((starter_socket = accept(starter_sfd, NULL, NULL)) < 1) {
             perror("accept");
@@ -377,26 +378,35 @@ int starter_recv_connections()
 
         struct tcpwrapper *starter_tcpwrapper =
             tcpwrapper_create(starter_socket, 1024);
-        // while (1) {
+
         struct starter_packet_header rheader;
         if (recv_wrap(starter_tcpwrapper, (void *)&rheader,
                       sizeof(struct starter_packet_header)) != 0) {
-            //     break;
+            tcpwrapper_destroy(starter_tcpwrapper);
+            tcpwrapper_destroy(server_tcpwrapper);
         }
 
         printf("Packet %d\n", rheader.type);
         if (rheader.type == STARTER_CREATE) {
+
             pthread_mutex_lock(&_interface_lock);
-            if (_vln_interfaces == NULL) {
-                pthread_mutex_unlock(&_interface_lock);
+            interfaces_checker = _vln_interfaces;
+            pthread_mutex_unlock(&_interface_lock);
+
+            if (interfaces_checker == NULL) {
 
                 struct starter_create_payload rpayload;
                 if (recv_wrap(starter_tcpwrapper, (void *)&rpayload,
-                              sizeof(struct starter_create_payload)) != 0)
+                              sizeof(struct starter_create_payload)) != 0) {
+                    tcpwrapper_destroy(starter_tcpwrapper);
+                    tcpwrapper_destroy(server_tcpwrapper);
+
                     printf("error recv_wrap starter create \n");
+                }
 
                 uint8_t spacket[sizeof(struct vln_packet_header) +
                                 sizeof(struct vln_create_payload)];
+                memset(spacket, 0, sizeof(spacket));
                 struct vln_packet_header *sheader =
                     (struct vln_packet_header *)spacket;
 
@@ -415,26 +425,37 @@ int starter_recv_connections()
                 if (send_wrap(server_tcpwrapper, (void *)spacket,
                               sizeof(spacket)) != 0) {
                     printf("error send_wrap create\n");
+
+                    tcpwrapper_destroy(starter_tcpwrapper);
+                    tcpwrapper_destroy(server_tcpwrapper);
+                    break;
                 } else {
                     printf("send_wrap create\n");
                 }
             } else {
-                pthread_mutex_unlock(&_interface_lock);
                 send_starter_response(starter_tcpwrapper, STARTER_EXIST);
             }
 
         } else if (rheader.type == STARTER_CONNECT) {
+
             pthread_mutex_lock(&_interface_lock);
-            if (_vln_interfaces == NULL) {
-                pthread_mutex_unlock(&_interface_lock);
+            interfaces_checker = _vln_interfaces;
+            pthread_mutex_unlock(&_interface_lock);
+
+            if (interfaces_checker == NULL) {
 
                 struct starter_connect_payload rpayload;
                 if (recv_wrap(starter_tcpwrapper, (void *)&rpayload,
-                              sizeof(struct starter_connect_payload)) != 0)
+                              sizeof(struct starter_connect_payload)) != 0) {
+                    tcpwrapper_destroy(starter_tcpwrapper);
+                    tcpwrapper_destroy(server_tcpwrapper);
+
                     printf("error recv_wrap starter connect \n");
+                }
 
                 uint8_t spacket[sizeof(struct vln_packet_header) +
                                 sizeof(struct vln_connect_payload)];
+                memset(spacket, 0, sizeof(spacket));
                 struct vln_packet_header *sheader =
                     (struct vln_packet_header *)spacket;
 
@@ -450,11 +471,14 @@ int starter_recv_connections()
                 if (send_wrap(server_tcpwrapper, (void *)spacket,
                               sizeof(spacket)) != 0) {
                     printf("error send_wrap connect\n");
+
+                    tcpwrapper_destroy(starter_tcpwrapper);
+                    tcpwrapper_destroy(server_tcpwrapper);
+                    break;
                 } else {
                     printf("send_wrap connect\n");
                 }
             } else {
-                pthread_mutex_unlock(&_interface_lock);
                 send_starter_response(starter_tcpwrapper, STARTER_EXIST);
             }
 
@@ -466,25 +490,32 @@ int starter_recv_connections()
             }
             pthread_mutex_unlock(&_interface_lock);
             send_starter_response(starter_tcpwrapper, STARTER_DONE);
+
+            tcpwrapper_destroy(starter_tcpwrapper);
+            tcpwrapper_destroy(server_tcpwrapper);
             break;
         } else {
             printf("ERROR: Unknown Packet Type Send %d\n", rheader.type);
             send_starter_response(starter_tcpwrapper, STARTER_ERROR);
             // break;
         }
+
         pthread_mutex_lock(&_interface_lock);
+        interfaces_checker = _vln_interfaces;
+        pthread_mutex_unlock(&_interface_lock);
+
         if ((rheader.type == STARTER_CONNECT ||
              rheader.type == STARTER_CREATE) &&
-            _vln_interfaces == NULL) {
-
-            pthread_mutex_unlock(&_interface_lock);
+            interfaces_checker == NULL) {
 
             struct vln_packet_header rpacket;
             if (recv_wrap(server_tcpwrapper, (void *)&rpacket,
                           sizeof(struct vln_packet_header)) !=
                 0) { // TODO TIMEOUT
-                perror("accept");
-                exit(EXIT_FAILURE);
+                printf("error recv_wrap server to starter \n");
+                tcpwrapper_destroy(starter_tcpwrapper);
+                tcpwrapper_destroy(server_tcpwrapper);
+                break;
             }
 
             printf("Type: %d\n", rpacket.type);
@@ -493,8 +524,12 @@ int starter_recv_connections()
                 printf("Received INIT\n");
                 struct vln_init_payload rpayload;
                 if (recv_wrap(server_tcpwrapper, (void *)&rpayload,
-                              sizeof(struct vln_init_payload)) != 0)
+                              sizeof(struct vln_init_payload)) != 0) {
                     printf("error recv_wrap INIT \n");
+                    tcpwrapper_destroy(starter_tcpwrapper);
+                    tcpwrapper_destroy(server_tcpwrapper);
+                    break;
+                }
                 pthread_mutex_lock(&_interface_lock);
                 _vln_interfaces = create_interface(
                     rpayload.vaddr, rpayload.broadaddr, rpayload.maskaddr,
@@ -503,7 +538,6 @@ int starter_recv_connections()
 
                 pthread_create(&_worker, NULL, manager_worker,
                                (void *)_vln_interfaces);
-                // manager_worker(server_tcpwrapper, vln_int);
 
             } else if (rpacket.type == ERROR) {
 
@@ -511,7 +545,9 @@ int starter_recv_connections()
                 struct vln_error_payload rpayload;
                 if (recv_wrap(server_tcpwrapper, (void *)&rpayload,
                               sizeof(struct vln_error_payload)) != 0) {
-                    // TODO
+                    tcpwrapper_destroy(starter_tcpwrapper);
+                    tcpwrapper_destroy(server_tcpwrapper);
+                    break;
                 }
                 printf("error: %d\n", rpayload.type);
                 send_starter_response(starter_tcpwrapper, rpayload.type);
@@ -519,14 +555,19 @@ int starter_recv_connections()
             } else {
                 send_starter_response(starter_tcpwrapper, STARTER_ERROR);
             }
-        } else {
-            pthread_mutex_unlock(&_interface_lock);
         }
-        // }
 
         tcpwrapper_destroy(starter_tcpwrapper);
+
+        pthread_mutex_lock(&_interface_lock);
+        interfaces_checker = _vln_interfaces;
+        pthread_mutex_unlock(&_interface_lock);
+
+        if (interfaces_checker == NULL) {
+            tcpwrapper_destroy(server_tcpwrapper);
+            break;
+        }
     }
-    pthread_mutex_destroy(&_interface_lock);
     close(starter_sfd);
     return 0;
 }
@@ -573,7 +614,10 @@ int main(int argc, char **argv)
     if (read_config() == -1) {
         return -1;
     }
+    _vln_interfaces = NULL;
     starter_recv_connections();
+
+    pthread_mutex_destroy(&_interface_lock);
 
     pthread_exit(NULL);
     return 0;

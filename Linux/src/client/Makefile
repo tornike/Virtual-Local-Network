@@ -11,19 +11,19 @@ $(OBJECT_DIR)client: $(OBJECT_DIR)main.o $(OBJECT_DIR)tcpwrapper.o $(OBJECT_DIR)
 	$(CC) $^ -o $(OBJECT_DIR)$@ $(LIBS)
 
 $(OBJECT_DIR)main.o: main.c
-	$(CC) $(CFLAGS_DEBUG) $< -o $@
+	$(CC) $(CFLAGS_RELEASE) $< -o $@
 
 $(OBJECT_DIR)vlnadapter.o: vlnadapter.c
-	$(CC) $(CFLAGS_DEBUG) $< -o $@
+	$(CC) $(CFLAGS_RELEASE) $< -o $@
 
 $(OBJECT_DIR)tcpwrapper.o: ../lib/tcpwrapper.c
-	$(CC) $(CFLAGS_DEBUG) $< -o $@
+	$(CC) $(CFLAGS_RELEASE) $< -o $@
 
 $(OBJECT_DIR)router.o: ../router.c
-	$(CC) $(CFLAGS_DEBUG) $< -o $@
+	$(CC) $(CFLAGS_RELEASE) $< -o $@
 
 $(OBJECT_DIR)taskexecutor.o: ../lib/taskexecutor.c
-	$(CC) $(CFLAGS_DEBUG) $< -o $@
+	$(CC) $(CFLAGS_RELEASE) $< -o $@
 
 starter: starterclient.c $(OBJECT_DIR)tcpwrapper.o
 	$(CC) $^ -o $(OBJECT_DIR)$@ $(LIBS)
