@@ -73,21 +73,26 @@ int recv_wrap(struct tcpwrapper *wrapper, void *buffer, size_t size)
             ssize_t recv_tmp;
             while ((recv_tmp = recv(wrapper->sockfd, wrapper->buffer,
                                     wrapper->buffer_size, 0)) < 0) {
-                if (errno != EAGAIN || errno != EWOULDBLOCK) {
-                    printf("Not EAGAIN or EWOULDBLOCK %d\n", errno);
-                    return 1;
-                }
-                pthread_mutex_lock(&wrapper->dflag.lock);
-                if (wrapper->dflag.flag == 1) {
+                if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                    pthread_mutex_lock(&wrapper->dflag.lock);
+                    if (wrapper->dflag.flag == 1) {
+                        pthread_mutex_unlock(&wrapper->dflag.lock);
+                        printf("Returning cause of flag\n");
+                        return 1;
+                    }
                     pthread_mutex_unlock(&wrapper->dflag.lock);
-                    printf("Returning cause of flag\n");
-                    return 1;
+                    printf("TCP TIMEOUT\n");
+                    continue;
                 }
-                pthread_mutex_unlock(&wrapper->dflag.lock);
-                printf("TCP TIMEOUT\n");
+
+                printf("Not EAGAIN or EWOULDBLOCK %d %s\n", errno,
+                       strerror(errno));
+                return 1;
             }
-            if (recv_tmp == 0)
-                return 1; // PEER DIED
+            if (recv_tmp == 0) {
+                printf("Peer Died\n");
+                return 1;
+            }
             wrapper->start_point = 0;
             wrapper->end_point = recv_tmp;
         } else {

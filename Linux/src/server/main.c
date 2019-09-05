@@ -351,7 +351,7 @@ void *manager_worker(void *arg)
     while (1) {
         if (recv_wrap(scon->tcpwrapper, (void *)&rpacket,
                       sizeof(struct vln_packet_header)) != 0) {
-            printf("Connection Lost\n");
+            printf("Connection Lost1\n");
             break;
         }
         if (rpacket.type == UPDATES) {

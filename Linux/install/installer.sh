@@ -8,12 +8,12 @@ fi
 instdir=/opt/vln
 
 mkdir $instdir
-cp starter client vln.config $instdir
-chmod +x $instdir/starter
-chmod +x $instdir/client
-chown $SUDO_USER: $instdir/starter
-chown $SUDO_USER: $instdir/client
+cp vlnstarter vlnclient vln.config $instdir
+chmod +x $instdir/vlnstarter
+chmod +x $instdir/vlnclient
+chown $SUDO_USER: $instdir/vlnstarter
+chown $SUDO_USER: $instdir/vlnclient
 chown $SUDO_USER: $instdir/vln.config
 chown $SUDO_USER: $instdir
-setcap cap_net_admin=eip $instdir/starter
-setcap cap_net_admin=eip $instdir/client
+setcap cap_net_admin=eip $instdir/vlnstarter
+setcap cap_net_admin=eip $instdir/vlnclient

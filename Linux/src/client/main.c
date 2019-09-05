@@ -17,7 +17,6 @@
 #include <sys/un.h>
 #include <unistd.h>
 
-#include "../connection.h"
 #include "../lib/protocol.h"
 #include "../lib/taskexecutor.h"
 #include "../lib/tcpwrapper.h"
@@ -219,7 +218,7 @@ void *manager_worker(void *arg)
                           sizeof(struct vln_updatedis_payload)) != 0) {
                 break;
             }
-            router_cremove_connection(vln_int->router, ntohl(rpayload.vaddr));
+            router_remove_connection(vln_int->router, ntohl(rpayload.vaddr));
         } else {
             printf("ERROR: Unknown Packet Type\n");
             break;

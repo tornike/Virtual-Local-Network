@@ -192,7 +192,7 @@ int main(int argc, char const *argv[])
             char *argvc[1];
             argvc[0] = NULL;
 
-            execv("client", argvc);
+            execv("vlnclient", argvc);
         } else {
             // Parent process
             printf("Child Pid %d\n", pid);

@@ -5,8 +5,6 @@
 #include <errno.h>
 #include <netinet/ip.h>
 #include <pthread.h>
-#include <semaphore.h>
-#include <stdatomic.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -196,10 +194,10 @@ void router_stop(struct router *router)
 void router_destroy(struct router *router)
 {
     pthread_rwlock_wrlock(&router->routing_table_lock);
-    for (int i = 0; i <= router->subnet_size; i++) {
-        if (router->routing_table[i] != NULL) {
-            if (router->routing_table[i]->vaddr == router->vaddr)
-                destroy_connection(router->routing_table[i]);
+    for (int key = 0; key <= router->subnet_size; key++) {
+        if (router->routing_table[key] != NULL &&
+            key == (router->routing_table[key]->vaddr - router->network_addr)) {
+            destroy_connection(router->routing_table[key]);
         }
     }
     pthread_rwlock_unlock(&router->routing_table_lock);
@@ -286,27 +284,21 @@ void router_remove_connection(struct router *router, uint32_t vaddr)
 {
     int key = vaddr - router->network_addr;
 
+    int isp2p = 0;
+
     struct router_connection *con;
     pthread_rwlock_wrlock(&router->routing_table_lock);
     con = router->routing_table[key];
     router->routing_table[key] = NULL;
-    pthread_rwlock_unlock(&router->routing_table_lock);
-
-    printf("Seg2\n");
-    if (con != NULL) {
-        destroy_connection(con); // TODO Correctly remove from epoll
+    if (con != NULL &&
+        vaddr == con->vaddr - router->network_addr) { // If P2P, Destroy.
+        isp2p = 1;
     }
-}
-
-void router_cremove_connection(struct router *router, uint32_t vaddr)
-{
-    int key = vaddr - router->network_addr;
-
-    struct router_connection *con;
-    pthread_rwlock_wrlock(&router->routing_table_lock);
-    con = router->routing_table[key];
-    router->routing_table[key] = NULL;
     pthread_rwlock_unlock(&router->routing_table_lock);
+
+    if (isp2p == 1) {
+        destroy_connection(router->routing_table[key]);
+    }
 }
 
 struct router_buffer_slot *router_get_free_slot(struct router *router)
@@ -380,7 +372,6 @@ void router_send(struct router *router, struct router_buffer_slot *slot)
 {
     pthread_mutex_lock(&router->send_buffer_lock);
     DL_APPEND(router->send_buffer, slot);
-    // printf("Added to send buffer\n");
     pthread_cond_broadcast(&router->send_buffer_cond);
     pthread_mutex_unlock(&router->send_buffer_lock);
 }
@@ -401,7 +392,7 @@ void router_send_init(struct router *router, uint32_t raddr, uint32_t rport)
     saddr.sin_port = ntohs(rport);
     saddr.sin_addr.s_addr = ntohl(raddr);
 
-    // TODO wait for approval from tcp same as in clients or just activate
+    // Wait for approval from tcp same as in clients or just activate
     // imediatelly.
 
     struct router_connection *new_con =
@@ -453,7 +444,6 @@ static void *recv_worker(void *arg)
     void *packetd;
     struct router_buffer_slot *slot;
     while (1) {
-        struct router_buffer_slot *tmp;
 
         slot = router_get_free_slot(router); // waiting point
 
@@ -499,7 +489,7 @@ static void *recv_worker(void *arg)
                 pthread_cond_broadcast(&router->recv_buffer_cond);
                 pthread_mutex_unlock(&router->recv_buffer_lock);
             } else {
-                printf("Retransmiting %u\n", vaddr);
+                // printf("Retransmiting %u\n", vaddr);
                 router_send(router, slot);
             }
         } else if (packeth->type == KEEPALIVE) {
@@ -639,13 +629,37 @@ static void *send_worker(void *arg)
 
                 timerfd_settime(router->routing_table[key]->skinfo->timerfd, 0,
                                 &iti, NULL);
-                printf("stimer reset %d\n",
-                       router->routing_table[key]->skinfo->timerfd);
+                // printf("stimer reset %d\n",
+                //        router->routing_table[key]->skinfo->timerfd);
             }
             pthread_rwlock_unlock(&router->routing_table_lock);
         } else if (vaddr == router->broadcast_addr) {
             printf("BROADCAST %u\n", vaddr);
-            // TODO
+            pthread_rwlock_rdlock(&router->routing_table_lock);
+            for (key = 0; key <= router->subnet_size; key++) {
+                if (router->routing_table[key] == NULL) {
+                    printf("CONNECTION IS NULL!!! %d %u\n", key, vaddr);
+                } else {
+
+                    saddr.sin_port =
+                        htons(router->routing_table[key]->rport); // hton ??
+                    saddr.sin_addr.s_addr =
+                        htonl(router->routing_table[key]->raddr); // hton ??
+
+                    // printf("Sending Data To %u %u\n",
+                    //        CONNECTIONGADDR(router->routing_table[key]->addr_port),
+                    //        CONNECTIONGPORT(router->routing_table[key]->addr_port));
+
+                    sendto(router->sockfd, packeth, slot_to_send->used_size, 0,
+                           (struct sockaddr *)&saddr, slen);
+
+                    timerfd_settime(router->routing_table[key]->skinfo->timerfd,
+                                    0, &iti, NULL);
+                    // printf("stimer reset %d\n",
+                    //        router->routing_table[key]->skinfo->timerfd);
+                }
+            }
+            pthread_rwlock_unlock(&router->routing_table_lock);
         } else {
             // printf("OUT OF RANGE %u\n", vaddr);
             // WHAT TO DO???

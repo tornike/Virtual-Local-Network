@@ -1,7 +1,6 @@
 #ifndef __VLN_PROTOCOL__
 #define __VLN_PROTOCOL__
 
-#include "../connection.h"
 #include <stdint.h>
 
 /* Router Protocol */
