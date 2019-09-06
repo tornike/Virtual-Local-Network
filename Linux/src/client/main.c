@@ -6,6 +6,7 @@
 #include <linux/if_tun.h>
 #include <netinet/ip.h>
 #include <pthread.h>
+#include <pwd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -354,11 +355,16 @@ int starter_recv_connections()
         exit(EXIT_FAILURE);
     }
 
+    char sockpath[50];
+    memset(sockpath, 0, 50);
+    strcpy(sockpath, _installation_dir);
+    strcat(sockpath, "socket");
+
     memset(&address, 0, sizeof(address));
     address.sun_family = AF_UNIX;
-    strcpy(address.sun_path, _installation_dir);
+    strcpy(address.sun_path, sockpath);
 
-    unlink(_installation_dir);
+    unlink(sockpath);
     if (bind(starter_sfd, (struct sockaddr *)&address,
              sizeof(struct sockaddr_un)) < 0) {
         perror("bind failed");
@@ -600,7 +606,15 @@ int read_config()
     struct json_object *server_port;
     struct json_object *installation_directory;
 
-    fp = fopen("vln.config",
+    struct passwd *pw = getpwuid(getuid());
+    const char *homedir = pw->pw_dir;
+
+    char configpath[strlen(homedir) + strlen("/.vln/vln.config") + 1];
+    memset(configpath, 0, strlen(homedir) + strlen("/.vln/vln.config") + 1);
+    strcpy(configpath, homedir);
+    strcat(configpath, "/.vln/vln.config");
+
+    fp = fopen(configpath,
                "r"); // TODO
 
     if (fp == NULL) {

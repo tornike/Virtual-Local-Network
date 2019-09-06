@@ -3,6 +3,7 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <json-c/json.h>
+#include <pwd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -149,7 +150,15 @@ int main(int argc, char const *argv[])
     struct json_object *parsed_json;
     struct json_object *installation_directory;
 
-    fp = fopen("vln.config", "r");
+    struct passwd *pw = getpwuid(getuid());
+    const char *homedir = pw->pw_dir;
+
+    char configpath[strlen(homedir) + strlen("/.vln/vln.config") + 1];
+    memset(configpath, 0, strlen(homedir) + strlen("/.vln/vln.config") + 1);
+    strcpy(configpath, homedir);
+    strcat(configpath, "/.vln/vln.config");
+
+    fp = fopen(configpath, "r");
 
     if (fp == NULL) {
         printf("Incorrect config\n");
@@ -189,9 +198,19 @@ int main(int argc, char const *argv[])
 
     memset(&addr, 0, sizeof(addr));
 
+    char instdir[50];
+    memset(instdir, 0, 50);
+    strcpy(instdir, (char *)json_object_get_string(installation_directory));
+
+    char sockpath[50];
+    memset(sockpath, 0, 50);
+    strcpy(sockpath, instdir);
+    strcat(sockpath, "socket");
+
     addr.sun_family = AF_UNIX;
-    strcpy(addr.sun_path,
-           (char *)json_object_get_string(installation_directory));
+    strcpy(addr.sun_path, sockpath);
+
+    chdir(instdir);
 
     int s;
     if ((s = connect(sock, (struct sockaddr *)&addr,
@@ -203,7 +222,7 @@ int main(int argc, char const *argv[])
         } else if (pid == 0) {
             char *argvc[1];
             argvc[0] = NULL;
-
+            chdir(instdir);
             execv("vlnclient", argvc);
         }
         sleep(1);

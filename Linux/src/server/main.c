@@ -7,6 +7,7 @@
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <pthread.h>
+#include <pwd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -486,7 +487,15 @@ int main(int argc, char **argv)
     struct json_object *server_ip;
     struct json_object *server_port;
 
-    fp = fopen("vln.config", "r");
+    struct passwd *pw = getpwuid(getuid());
+    const char *homedir = pw->pw_dir;
+
+    char configpath[strlen(homedir) + strlen("/.vln/vln.config") + 1];
+    memset(configpath, 0, strlen(homedir) + strlen("/.vln/vln.config") + 1);
+    strcpy(configpath, homedir);
+    strcat(configpath, "/.vln/vln.config");
+
+    fp = fopen(configpath, "r");
 
     if (fp == NULL) {
         return -1;
