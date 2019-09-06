@@ -291,13 +291,13 @@ void router_remove_connection(struct router *router, uint32_t vaddr)
     con = router->routing_table[key];
     router->routing_table[key] = NULL;
     if (con != NULL &&
-        vaddr == con->vaddr - router->network_addr) { // If P2P, Destroy.
+        key == con->vaddr - router->network_addr) { // If P2P, Destroy.
         isp2p = 1;
     }
     pthread_rwlock_unlock(&router->routing_table_lock);
 
     if (isp2p == 1) {
-        destroy_connection(router->routing_table[key]);
+        destroy_connection(con);
     }
 }
 

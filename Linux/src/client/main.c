@@ -248,6 +248,7 @@ void *manager_worker(void *arg)
     pthread_mutex_unlock(&_interface_lock);
 
     printf("client died\n");
+    exit(0);
 
     return NULL;
 }
