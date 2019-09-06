@@ -331,7 +331,7 @@ int send_starter_response(struct tcpwrapper *starter_tcpwrapper,
     memset(spacket, 0, sizeof(spacket));
     struct starter_packet_header *sheader =
         (struct starter_packet_header *)spacket;
-    sheader->type = type;
+    sheader->type = STARTER_RESPONSE;
     sheader->payload_length = sizeof(struct starter_response_payload);
 
     struct starter_response_payload *spayload =
@@ -429,7 +429,8 @@ int starter_recv_connections()
                 if (send_wrap(server_tcpwrapper, (void *)spacket,
                               sizeof(spacket)) != 0) {
                     printf("error send_wrap create\n");
-
+                    send_starter_response(starter_tcpwrapper,
+                                          LOST_SERVER_CONNECTION);
                     tcpwrapper_destroy(starter_tcpwrapper);
                     tcpwrapper_destroy(server_tcpwrapper);
                     break;
@@ -475,8 +476,9 @@ int starter_recv_connections()
                 strcpy(spayload->network_password, rpayload.networck_password);
                 if (send_wrap(server_tcpwrapper, (void *)spacket,
                               sizeof(spacket)) != 0) {
+                    send_starter_response(starter_tcpwrapper,
+                                          LOST_SERVER_CONNECTION);
                     printf("error send_wrap connect\n");
-
                     tcpwrapper_destroy(starter_tcpwrapper);
                     tcpwrapper_destroy(server_tcpwrapper);
                     break;
@@ -494,7 +496,7 @@ int starter_recv_connections()
                 tcpwrapper_set_die_flag(_vln_interfaces->server_connection);
             }
             pthread_mutex_unlock(&_interface_lock);
-            send_starter_response(starter_tcpwrapper, STARTER_DONE);
+            send_starter_response(starter_tcpwrapper, STARTER_DISCONNECT_DONE);
 
             tcpwrapper_destroy(starter_tcpwrapper);
             tcpwrapper_destroy(server_tcpwrapper);
@@ -521,6 +523,8 @@ int starter_recv_connections()
                           sizeof(struct vln_packet_header)) !=
                 0) { // TODO TIMEOUT
                 printf("error recv_wrap server to starter \n");
+                send_starter_response(starter_tcpwrapper,
+                                      LOST_SERVER_CONNECTION);
                 tcpwrapper_destroy(starter_tcpwrapper);
                 tcpwrapper_destroy(server_tcpwrapper);
                 break;
@@ -534,6 +538,8 @@ int starter_recv_connections()
                 if (recv_wrap(server_tcpwrapper, (void *)&rpayload,
                               sizeof(struct vln_init_payload)) != 0) {
                     printf("error recv_wrap INIT \n");
+                    send_starter_response(starter_tcpwrapper,
+                                          LOST_SERVER_CONNECTION);
                     tcpwrapper_destroy(starter_tcpwrapper);
                     tcpwrapper_destroy(server_tcpwrapper);
                     break;
@@ -553,6 +559,8 @@ int starter_recv_connections()
                 struct vln_error_payload rpayload;
                 if (recv_wrap(server_tcpwrapper, (void *)&rpayload,
                               sizeof(struct vln_error_payload)) != 0) {
+                    send_starter_response(starter_tcpwrapper,
+                                          LOST_SERVER_CONNECTION);
                     tcpwrapper_destroy(starter_tcpwrapper);
                     tcpwrapper_destroy(server_tcpwrapper);
                     break;
@@ -627,8 +635,6 @@ int main(int argc, char **argv)
     }
     _vln_interfaces = NULL;
     starter_recv_connections();
-
-    printf("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \n");
     pthread_mutex_destroy(&_interface_lock);
 
     pthread_exit(NULL);

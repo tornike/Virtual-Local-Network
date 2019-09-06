@@ -20,9 +20,6 @@ void *get_disconnect_payload()
     sheader->type = STARTER_DISCONNECT;
     sheader->payload_length = 0;
 
-    printf("%d\n", sheader->payload_length);
-    printf("%d\n", sheader->type);
-
     return spacket;
 }
 
@@ -55,11 +52,6 @@ void *get_connect_payload(char const *argv[])
 
     strcpy(spayload->networck_name, argv[2]);
     strcpy(spayload->networck_password, argv[3]);
-
-    printf("%d\n", sheader->payload_length);
-    printf("%d\n", sheader->type);
-    printf("%s\n", spayload->networck_name);
-    printf("%s\n", spayload->networck_password);
 
     return spacket;
 }
@@ -118,19 +110,36 @@ void *get_create_payload(char const *argv[])
     strcpy(spayload->subnet, subnet);
     sprintf(spayload->bit, "%d", bit_check);
 
-    printf("%d\n", sheader->payload_length);
-    printf("%d\n", sheader->type);
-    printf("%s\n", spayload->networck_name);
-    printf("%s\n", spayload->networck_password);
-    printf("%s\n", spayload->subnet);
-    printf("%s\n", spayload->bit);
-
     return spacket;
+}
+
+int prin_response(starter_packet_type type)
+{
+    if (type == STARTER_ERROR || type == SERVER_UNKNOWN_PACKET_TYPE) {
+        printf("ERROR: Unknown Packet Type Received From Server\n");
+    } else if (type == STARTER_DONE) {
+        printf("Vln Client Connected\n");
+    } else if (type == STARTER_EXIST) {
+        printf("Vln Client Process Already Running\n");
+    } else if (type == STARTER_DISCONNECT_DONE) {
+        printf("Vln Client Will Be Disconnected\n");
+    } else if (type == SERVER_NAME_OR_PASSWOR) {
+        printf("Name Or Password Is Incorrect\n");
+    } else if (type == SERVER_NETWORK_NOT_EXISTS) {
+        printf("Vln Network Not Exists\n");
+    } else if (type == SERVER_INSERT_ERROR) {
+        printf("Vln Network Name Already Exists\n");
+    } else if (type == SERVER_SUBNET_IS_FULL) {
+        printf("Vln Network is Full\n");
+    } else if (type == LOST_SERVER_CONNECTION) {
+        printf("Lost Server Connection\n");
+    } else {
+        printf("ERROR: Unknown Packet Type Received From Service%d\n", type);
+    }
 }
 
 int main(int argc, char const *argv[])
 {
-
     uint8_t *spacket;
     int sock = 0;
     struct sockaddr_un addr;
@@ -184,23 +193,20 @@ int main(int argc, char const *argv[])
     strcpy(addr.sun_path,
            (char *)json_object_get_string(installation_directory));
 
-    if (connect(sock, (struct sockaddr *)&addr, sizeof(struct sockaddr_un)) <
-        0) {
-        printf("Start interface!\n"); // DOTO
+    int s;
+    if ((s = connect(sock, (struct sockaddr *)&addr,
+                     sizeof(struct sockaddr_un))) < 0) {
 
         int pid = fork();
         if (pid < 0) {
             printf("Process creation failed\n");
-        } else if (pid == 0) { // Child Process
+        } else if (pid == 0) {
             char *argvc[1];
             argvc[0] = NULL;
 
             execv("vlnclient", argvc);
-        } else {
-            // Parent process
-            printf("Child Pid %d\n", pid);
         }
-        sleep(2);
+        sleep(1);
         if (connect(sock, (struct sockaddr *)&addr,
                     sizeof(struct sockaddr_un)) < 0) {
             printf("Connection Failed %s\n", strerror(errno));
@@ -216,9 +222,7 @@ int main(int argc, char const *argv[])
     if (send_wrap(tcpwrapper, (void *)spacket,
                   sizeof(struct starter_packet_header) +
                       sheader->payload_length) != 0) {
-        printf("error send_wrap connect\n");
-    } else {
-        printf("send_wrap connect\n");
+        printf("Lost Connection\n");
     }
     free(spacket);
 
@@ -227,17 +231,16 @@ int main(int argc, char const *argv[])
     struct starter_packet_header rheader;
     if (recv_wrap(tcpwrapper, (void *)&rheader,
                   sizeof(struct starter_packet_header)) != 0) {
-        printf("error recv_wrap starter header \n");
+        printf("Lost Connection\n");
         return -1;
     }
 
-    if (rheader.type == STARTER_DONE || rheader.type == STARTER_ERROR) {
+    if (rheader.type == STARTER_RESPONSE) {
         struct starter_response_payload rpayload;
         if (recv_wrap(tcpwrapper, (void *)&rpayload,
                       sizeof(struct starter_response_payload)) != 0)
-            printf("error recv_wrap INIT \n");
-        // TODO Rsponse Text
-        printf("Status: %d\n", rpayload.type);
+            printf("Lost Connection\n");
+        prin_response(rpayload.type);
     } else {
         printf("ERROR: Unknown Packet Type Received %d\n", rheader.type);
     }

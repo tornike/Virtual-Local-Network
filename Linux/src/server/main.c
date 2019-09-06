@@ -193,20 +193,8 @@ void send_error(vln_packet_type type, struct tcpwrapper *tcpwrapper)
 
 void *manager_worker(void *arg)
 {
-    int sockfd = (int)arg;
+    struct tcpwrapper *tcpwrapper = (struct tcpwrapper *)arg;
     struct vln_network *curr_net;
-
-    struct tcpwrapper *tcpwrapper = tcpwrapper_create(sockfd, 1024);
-
-    //===========ZEDMET=============
-    socklen_t c_addr_size = sizeof(struct sockaddr_in);
-    struct sockaddr_in c_addr;
-    getpeername(sockfd, (struct sockaddr *)&c_addr, &c_addr_size);
-
-    char adddr[INET_ADDRSTRLEN];
-    inet_ntop(AF_INET, &c_addr.sin_addr, adddr, c_addr_size);
-    printf("Client %s Connected\n", adddr);
-    //==============================
 
     //===============AUTHENTIFICATION============
     // If good assign address and go.
@@ -287,7 +275,7 @@ void *manager_worker(void *arg)
     //===============AUTHENTIFICATION============
 
     struct server_connection *scon = malloc(sizeof(struct server_connection));
-    scon->sockfd = sockfd;
+    // scon->sockfd = sockfd;
     scon->tcpwrapper = tcpwrapper;
 
     pthread_mutex_lock(&curr_net->connections_lock);
@@ -298,7 +286,7 @@ void *manager_worker(void *arg)
         printf("Subnet is full \n");
 
         tcpwrapper_destroy(tcpwrapper);
-        close(sockfd);
+        // close(sockfd);
         free(scon);
         pthread_mutex_unlock(&curr_net->connections_lock);
 
@@ -372,12 +360,12 @@ void *manager_worker(void *arg)
         }
     }
 
+    printf("removing connection\n");
+    router_remove_connection(curr_net->router, scon->vaddr);
+
     pthread_mutex_lock(&curr_net->connections_lock);
     HASH_DEL(curr_net->connections, scon);
     pthread_mutex_unlock(&curr_net->connections_lock);
-
-    printf("removing connection\n");
-    router_remove_connection(curr_net->router, scon->vaddr);
 
     //==============SEND PeerDisconnected===============
     do {
@@ -431,9 +419,18 @@ void recv_connections(int port) // TODO
 
     while (1) {
         cfd = accept(sfd, (struct sockaddr *)&c_addr, &sockaddr_in_size);
+        //===========ZEDMET=============
+        socklen_t c_addr_size = sizeof(struct sockaddr_in);
+        struct sockaddr_in c_addr;
+        getpeername(sfd, (struct sockaddr *)&c_addr, &c_addr_size);
 
+        char adddr[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &c_addr.sin_addr, adddr, c_addr_size);
+        printf("Client %s Connected\n", adddr);
+        //==============================
+        struct tcpwrapper *tcpwrapper = tcpwrapper_create(cfd, 1024);
         pthread_t t;
-        pthread_create(&t, NULL, manager_worker, (void *)cfd);
+        pthread_create(&t, NULL, manager_worker, (void *)tcpwrapper);
     }
 }
 
