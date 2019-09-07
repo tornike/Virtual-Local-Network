@@ -114,7 +114,7 @@ void *get_create_payload(char const *argv[])
     return spacket;
 }
 
-int prin_response(starter_packet_type type)
+int print_response(starter_packet_type type)
 {
     if (type == STARTER_ERROR || type == SERVER_UNKNOWN_PACKET_TYPE) {
         printf("ERROR: Unknown Packet Type Received From Server\n");
@@ -259,7 +259,7 @@ int main(int argc, char const *argv[])
         if (recv_wrap(tcpwrapper, (void *)&rpayload,
                       sizeof(struct starter_response_payload)) != 0)
             printf("Lost Connection\n");
-        prin_response(rpayload.type);
+        print_response(rpayload.type);
     } else {
         printf("ERROR: Unknown Packet Type Received %d\n", rheader.type);
     }

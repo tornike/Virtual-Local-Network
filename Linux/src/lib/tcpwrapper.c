@@ -77,20 +77,14 @@ int recv_wrap(struct tcpwrapper *wrapper, void *buffer, size_t size)
                     pthread_mutex_lock(&wrapper->dflag.lock);
                     if (wrapper->dflag.flag == 1) {
                         pthread_mutex_unlock(&wrapper->dflag.lock);
-                        printf("Returning cause of flag\n");
                         return 1;
                     }
                     pthread_mutex_unlock(&wrapper->dflag.lock);
-                    printf("TCP TIMEOUT %d\n", wrapper->sockfd);
                     continue;
                 }
-
-                printf("Not EAGAIN or EWOULDBLOCK %d %s\n", errno,
-                       strerror(errno));
                 return 1;
             }
             if (recv_tmp == 0) {
-                printf("Peer Died %d %s\n", errno, strerror(errno));
                 return 1;
             }
             wrapper->start_point = 0;
