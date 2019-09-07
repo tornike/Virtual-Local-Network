@@ -75,7 +75,6 @@ void taskexecutor_destroy(struct taskexecutor *executor)
     taskexecutor_add_task(executor, dtinfo);
 
     pthread_join(executor->worker, NULL);
-    printf("Task Executor Died\n");
 
     pthread_mutex_destroy(&executor->queue_lock);
     pthread_cond_destroy(&executor->queue_cond);

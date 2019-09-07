@@ -26,10 +26,6 @@
 #include "starterprotocol.h"
 #include "vlnadapter.h"
 
-// TODO!!!!!!!
-#define UPDATETABLE 700
-#define BUFFERSIZE 4096
-
 struct vln_interface {
     uint32_t address;
     uint32_t mask_address;
@@ -74,7 +70,6 @@ void router_listener(void *args, struct task_info *tinfo)
     struct vln_interface *vln_int = (struct vln_interface *)args;
 
     if (tinfo->operation == PEERDISCONNECTED) {
-        printf("Peers Disconnected\n");
         struct router_action *act = (struct router_action *)tinfo->args;
         if (act->vaddr == (vln_int->address & vln_int->mask_address)) {
             tcpwrapper_set_die_flag(vln_int->server_connection);
@@ -90,7 +85,6 @@ static void cleanup_handler(void *arg)
     struct cleanup_handler_arg *cha = (struct cleanup_handler_arg *)arg;
     router_add_free_slot(cha->vln_int->router, cha->slot);
     free(cha);
-    printf("Cleanup Done\n");
 }
 
 void *recv_thread(void *arg)
@@ -106,17 +100,6 @@ void *recv_thread(void *arg)
         if (cha->slot == NULL)
             break;
 
-        // void *buff = DATA_PACKET_PAYLOAD(slot->buffer);
-        // char saddr[INET_ADDRSTRLEN];
-        // char daddr[INET_ADDRSTRLEN];
-        // inet_ntop(AF_INET, &((struct iphdr *)buff)->saddr, saddr,
-        //           INET_ADDRSTRLEN);
-        // inet_ntop(AF_INET, &((struct iphdr *)buff)->daddr, daddr,
-        //           INET_ADDRSTRLEN);
-
-        // printf("Received from V %s %s %d bytes\n", saddr, daddr,
-        //        slot->used_size - sizeof(struct vln_data_packet_header));
-
         pthread_cleanup_push(cleanup_handler, cha);
 
         write(cha->vln_int->adapter->fd,
@@ -127,7 +110,6 @@ void *recv_thread(void *arg)
 
         router_add_free_slot(cha->vln_int->router, cha->slot);
     }
-    printf("Recv Thread Returns\n");
     free(cha);
     return NULL;
 }
@@ -164,7 +146,6 @@ void *send_thread(void *arg)
         ((struct vln_data_packet_header *)cha->slot->buffer)->type = DATA;
         router_send(cha->vln_int->router, cha->slot);
     }
-    printf("Send Thread Returns\n");
     free(cha);
     return NULL;
 }
@@ -175,38 +156,26 @@ void *manager_worker(void *arg)
     struct vln_packet_header rpacket;
 
     while (1) {
-        printf("recv\n");
         if (recv_wrap(vln_int->server_connection, (void *)&rpacket,
                       sizeof(struct vln_packet_header)) != 0) {
             break;
         }
-        printf("Type: %d\n", rpacket.type);
         if (rpacket.type == ROOTNODE) {
-            printf("Recived: ROOTNODE\n");
             struct vln_rootnode_payload rpayload;
             if (recv_wrap(vln_int->server_connection, (void *)&rpayload,
                           sizeof(struct vln_rootnode_payload)) != 0) {
-                printf("error recv_wrap ROOTNODE \n");
                 break;
             }
-
-            printf("Root raddr: %u\n", ntohl(rpayload.raddr));
-            printf("Root port: %u\n", ntohs(rpayload.rport));
-            printf("Root vaddr: %u\n", ntohl(rpayload.vaddr));
 
             router_send_init(vln_int->router, ntohl(rpayload.raddr),
                              ntohs(rpayload.rport));
 
         } else if (rpacket.type == UPDATES) {
-            printf("Updates Received\n");
             struct vln_updates_payload rpayload;
             if (recv_wrap(vln_int->server_connection, (void *)&rpayload,
                           sizeof(struct vln_updates_payload)) != 0) {
                 break;
             }
-            printf("Update %u %u %u %u %u\n", ntohl(rpayload.svaddr),
-                   ntohl(rpayload.dvaddr), ntohl(rpayload.vaddr),
-                   ntohl(rpayload.raddr), ntohs(rpayload.rport));
 
             router_try_connection(vln_int->router, ntohl(rpayload.vaddr),
                                   ntohl(rpayload.raddr), ntohs(rpayload.rport));
@@ -214,7 +183,6 @@ void *manager_worker(void *arg)
             router_setup_pyramid(vln_int->router, ntohl(rpayload.vaddr));
 
         } else if (rpacket.type == UPDATEDIS) {
-            printf("UPDATEDIS Received\n");
             struct vln_updatedis_payload rpayload;
             if (recv_wrap(vln_int->server_connection, (void *)&rpayload,
                           sizeof(struct vln_updatedis_payload)) != 0) {
@@ -222,7 +190,6 @@ void *manager_worker(void *arg)
             }
             router_remove_connection(vln_int->router, ntohl(rpayload.vaddr));
         } else {
-            printf("ERROR: Unknown Packet Type\n");
             break;
         }
     }
@@ -230,15 +197,12 @@ void *manager_worker(void *arg)
     tcpwrapper_destroy(vln_int->server_connection);
 
     router_stop(vln_int->router);
-    printf("Router stopped\n");
 
     pthread_cancel(vln_int->sender);
     pthread_cancel(vln_int->receiver);
 
     pthread_join(vln_int->receiver, NULL);
-    printf("Client Receiver died\n");
     pthread_join(vln_int->sender, NULL);
-    printf("Client Sender died\n");
 
     router_destroy(vln_int->router);
 
@@ -248,7 +212,6 @@ void *manager_worker(void *arg)
     _vln_interfaces = NULL;
     pthread_mutex_unlock(&_interface_lock);
 
-    printf("client died\n");
     exit(0);
 
     return NULL;
@@ -265,7 +228,7 @@ static struct vln_interface *create_interface(uint32_t addr_be,
                                 broad_addr_be) == -1) {
         dprintf(STDERR_FILENO, "Adding payload in interface failed: %s\n ",
                 strerror(errno));
-        exit(EXIT_FAILURE); // TODO
+        exit(EXIT_FAILURE);
     }
 
     struct vln_interface *new_int = malloc(sizeof(struct vln_interface));
@@ -389,13 +352,11 @@ int starter_recv_connections()
         struct starter_packet_header rheader;
         if (recv_wrap(starter_tcpwrapper, (void *)&rheader,
                       sizeof(struct starter_packet_header)) != 0) {
-            printf("error recv_wrap starter header \n");
             tcpwrapper_destroy(starter_tcpwrapper);
             tcpwrapper_destroy(server_tcpwrapper);
             break;
         }
 
-        printf("Packet %d\n", rheader.type);
         if (rheader.type == STARTER_CREATE) {
 
             pthread_mutex_lock(&_interface_lock);
@@ -407,7 +368,6 @@ int starter_recv_connections()
                 struct starter_create_payload rpayload;
                 if (recv_wrap(starter_tcpwrapper, (void *)&rpayload,
                               sizeof(struct starter_create_payload)) != 0) {
-                    printf("error recv_wrap starter create \n");
 
                     tcpwrapper_destroy(starter_tcpwrapper);
                     tcpwrapper_destroy(server_tcpwrapper);
@@ -426,22 +386,17 @@ int starter_recv_connections()
 
                 struct vln_create_payload *spayload =
                     (struct vln_create_payload *)PACKET_PAYLOAD(spacket);
-                printf("net: %s\n", rpayload.subnet);
-                printf("bit: %s\n", rpayload.bit);
                 strcpy(spayload->addres, rpayload.subnet);
                 strcpy(spayload->bit, rpayload.bit);
                 strcpy(spayload->network_name, rpayload.networck_name);
                 strcpy(spayload->network_password, rpayload.networck_password);
                 if (send_wrap(server_tcpwrapper, (void *)spacket,
                               sizeof(spacket)) != 0) {
-                    printf("error send_wrap create\n");
                     send_starter_response(starter_tcpwrapper,
                                           LOST_SERVER_CONNECTION);
                     tcpwrapper_destroy(starter_tcpwrapper);
                     tcpwrapper_destroy(server_tcpwrapper);
                     break;
-                } else {
-                    printf("send_wrap create\n");
                 }
             } else {
                 send_starter_response(starter_tcpwrapper, STARTER_EXIST);
@@ -461,7 +416,6 @@ int starter_recv_connections()
                     tcpwrapper_destroy(starter_tcpwrapper);
                     tcpwrapper_destroy(server_tcpwrapper);
 
-                    printf("error recv_wrap starter connect \n");
                     break;
                 }
 
@@ -484,19 +438,15 @@ int starter_recv_connections()
                               sizeof(spacket)) != 0) {
                     send_starter_response(starter_tcpwrapper,
                                           LOST_SERVER_CONNECTION);
-                    printf("error send_wrap connect\n");
                     tcpwrapper_destroy(starter_tcpwrapper);
                     tcpwrapper_destroy(server_tcpwrapper);
                     break;
-                } else {
-                    printf("send_wrap connect\n");
                 }
             } else {
                 send_starter_response(starter_tcpwrapper, STARTER_EXIST);
             }
 
         } else if (rheader.type == STARTER_DISCONNECT) {
-            printf("Discnnect\n");
             pthread_mutex_lock(&_interface_lock);
             if (_vln_interfaces != NULL) {
                 tcpwrapper_set_die_flag(_vln_interfaces->server_connection);
@@ -508,7 +458,6 @@ int starter_recv_connections()
             tcpwrapper_destroy(server_tcpwrapper);
             break;
         } else {
-            printf("ERROR: Unknown Packet Type Send %d\n", rheader.type);
             send_starter_response(starter_tcpwrapper, STARTER_ERROR);
             tcpwrapper_destroy(starter_tcpwrapper);
             tcpwrapper_destroy(server_tcpwrapper);
@@ -526,9 +475,7 @@ int starter_recv_connections()
 
             struct vln_packet_header rpacket;
             if (recv_wrap(server_tcpwrapper, (void *)&rpacket,
-                          sizeof(struct vln_packet_header)) !=
-                0) { // TODO TIMEOUT
-                printf("error recv_wrap server to starter \n");
+                          sizeof(struct vln_packet_header)) != 0) {
                 send_starter_response(starter_tcpwrapper,
                                       LOST_SERVER_CONNECTION);
                 tcpwrapper_destroy(starter_tcpwrapper);
@@ -536,14 +483,11 @@ int starter_recv_connections()
                 break;
             }
 
-            printf("Type: %d\n", rpacket.type);
             if (rpacket.type == INIT) {
                 send_starter_response(starter_tcpwrapper, STARTER_DONE);
-                printf("Received INIT\n");
                 struct vln_init_payload rpayload;
                 if (recv_wrap(server_tcpwrapper, (void *)&rpayload,
                               sizeof(struct vln_init_payload)) != 0) {
-                    printf("error recv_wrap INIT \n");
                     send_starter_response(starter_tcpwrapper,
                                           LOST_SERVER_CONNECTION);
                     tcpwrapper_destroy(starter_tcpwrapper);
@@ -551,17 +495,15 @@ int starter_recv_connections()
                     break;
                 }
                 pthread_mutex_lock(&_interface_lock);
-                _vln_interfaces = create_interface(
-                    rpayload.vaddr, rpayload.broadaddr, rpayload.maskaddr,
-                    server_tcpwrapper); // TODO hash
+                _vln_interfaces =
+                    create_interface(rpayload.vaddr, rpayload.broadaddr,
+                                     rpayload.maskaddr, server_tcpwrapper);
                 pthread_mutex_unlock(&_interface_lock);
 
                 pthread_create(&_worker, NULL, manager_worker,
                                (void *)_vln_interfaces);
 
             } else if (rpacket.type == ERROR) {
-
-                printf("ERROR Received\n");
                 struct vln_error_payload rpayload;
                 if (recv_wrap(server_tcpwrapper, (void *)&rpayload,
                               sizeof(struct vln_error_payload)) != 0) {
@@ -571,7 +513,6 @@ int starter_recv_connections()
                     tcpwrapper_destroy(server_tcpwrapper);
                     break;
                 }
-                printf("error: %d\n", rpayload.type);
                 send_starter_response(starter_tcpwrapper, rpayload.type);
 
             } else {
@@ -614,8 +555,7 @@ int read_config()
     strcpy(configpath, homedir);
     strcat(configpath, "/.vln/vln.config");
 
-    fp = fopen(configpath,
-               "r"); // TODO
+    fp = fopen(configpath, "r");
 
     if (fp == NULL) {
         return -1;

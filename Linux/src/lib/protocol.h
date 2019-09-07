@@ -53,16 +53,6 @@ struct vln_updates_payload {
     uint16_t rport;
 } __attribute__((packed));
 
-// struct vln_update_payload {
-//     uint32_t svaddr;
-//     uint32_t sraddr;
-//     uint16_t srport;
-//     uint32_t dvaddr;
-//     uint32_t vaddr;
-//     uint32_t raddr;
-//     uint16_t rport;
-// } __attribute__((packed));
-
 struct vln_updatedis_payload {
     uint32_t vaddr;
 } __attribute__((packed));
@@ -81,30 +71,16 @@ struct vln_vaddr_payload {
     uint8_t flags;
 } __attribute__((packed));
 
-// TODO
 struct vln_addr_payload {
     uint32_t raddr;
     uint16_t port;
 } __attribute__((packed));
 
-// TODO
 struct vln_rootnode_payload {
     uint32_t vaddr;
     uint32_t raddr;
     uint16_t rport;
 } __attribute__((packed));
-
-// struct vln_server_connect_payload { /* Connect packet payload for server */
-//     vln_connection_type con_type;
-//     uint32_t vaddr;
-// } __attribute__((packed));
-
-// struct vln_connect_payload { /* Connect packet payload for client */
-//     vln_connection_type con_type;
-//     uint32_t vaddr; /* visac unda daukavshirdes */
-//     uint32_t raddr; /* razec unda gaugzavnos traffici */
-//     uint16_t rport;
-// } __attribute__((packed));
 
 struct vln_connect_payload { /* Connect packet payload for client */
     char network_name[REQUEST_MAX_LENGTH];
@@ -116,7 +92,6 @@ struct vln_create_payload {
     char network_password[REQUEST_MAX_LENGTH];
     char addres[REQUEST_MAX_LENGTH];
     char bit[NETWORK_BIT];
-    // DOTO
 } __attribute__((packed));
 
 struct vln_data_packet_header {

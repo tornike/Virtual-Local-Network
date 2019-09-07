@@ -117,9 +117,6 @@ void router_listener(void *args, struct task_info *tinfo)
                                   sizeof(struct vln_packet_header) +
                                       sizeof(struct vln_updates_payload)) !=
                         0) {
-                        printf("Update Send Failed\n");
-                    } else {
-                        printf("Update Sent\n");
                     }
 
                     stcpayload->vaddr = htonl(elem->vaddr);
@@ -129,21 +126,14 @@ void router_listener(void *args, struct task_info *tinfo)
                                   sizeof(struct vln_packet_header) +
                                       sizeof(struct vln_updates_payload)) !=
                         0) {
-                        printf("Update Send Failed\n");
-                    } else {
-                        printf("Update Sent\n");
                     }
                 }
             }
-        } else {
-            printf("Con NUll in router listener\n");
         }
         pthread_mutex_unlock(&net->connections_lock);
         free(act);
     } else if (tinfo->operation == PEERDISCONNECTED) {
         struct router_action *act = (struct router_action *)tinfo->args;
-
-        printf("PEERDISCONNECTED \n");
 
         pthread_mutex_lock(&net->connections_lock);
 
@@ -152,12 +142,9 @@ void router_listener(void *args, struct task_info *tinfo)
         if (curr_con != NULL) {
             tcpwrapper_set_die_flag(curr_con->tcpwrapper);
         }
-        // curr_con->vaddr = 0;  Seg Fault da gasaazrebelia
         pthread_mutex_unlock(&net->connections_lock);
 
         free(act);
-    } else {
-        printf("Unknown router_listener operation\n");
     }
 }
 
@@ -186,9 +173,6 @@ void send_error(vln_packet_type type, struct tcpwrapper *tcpwrapper)
     spayload->type = type;
 
     if (send_wrap(tcpwrapper, (void *)serror, sizeof(serror)) != 0) {
-        printf("error send_wrap %d\n", type);
-    } else {
-        printf("send_wrap %d\n", type);
     }
 }
 
@@ -216,7 +200,6 @@ void *manager_worker(void *arg)
                                            rpayload.network_password);
             if (name == NULL) {
                 send_error(NAME_OR_PASSWOR, tcpwrapper);
-                printf("name is null\n");
                 return NULL;
             }
             pthread_rwlock_rdlock(&_vln_network_lock);
@@ -224,11 +207,9 @@ void *manager_worker(void *arg)
             pthread_rwlock_unlock(&_vln_network_lock);
             if (curr_net == NULL) { // TODO if network deletes not correct.
                 send_error(NETWORK_NOT_EXISTS, tcpwrapper);
-                printf("curr_net is null\n");
                 return NULL;
             }
         } else if (rpacket.type == CREATE) {
-            // DOTO
             struct vln_create_payload rpayload;
             if (recv_wrap(tcpwrapper, (void *)&rpayload,
                           ntohl(rpacket.payload_length)))
@@ -238,7 +219,6 @@ void *manager_worker(void *arg)
                                    rpayload.network_password) == -1) {
 
                 send_error(INSERT_ERROR, tcpwrapper);
-                printf("INSERT error\n");
                 return NULL;
             }
             char argv1[REQUEST_MAX_LENGTH];
@@ -261,14 +241,11 @@ void *manager_worker(void *arg)
             if (curr_net == NULL) {
 
                 send_error(NETWORK_NOT_EXISTS, tcpwrapper);
-                printf("new_curr_net is null\n");
                 return NULL;
             }
 
         } else {
-
             send_error(UNKNOWN_PACKET_TYPE, tcpwrapper);
-            printf("ERROR: Unknown Packet Type %d\n", rpacket.type);
             return NULL;
         }
     } while (0);
@@ -284,10 +261,7 @@ void *manager_worker(void *arg)
     if (scon->vaddr == 0) {
         send_error(SUBNET_IS_FULL, tcpwrapper);
 
-        printf("Subnet is full \n");
-
         tcpwrapper_destroy(tcpwrapper);
-        // close(sockfd);
         free(scon);
         pthread_mutex_unlock(&curr_net->connections_lock);
 
@@ -311,8 +285,6 @@ void *manager_worker(void *arg)
 
         if (send_wrap(tcpwrapper, (void *)spacket, sizeof(spacket)) != 0) {
             printf("Send Failed\n");
-        } else {
-            printf("INIT Sent\n");
         }
     } while (0);
     //==========================================
@@ -332,8 +304,6 @@ void *manager_worker(void *arg)
 
         if (send_wrap(tcpwrapper, (void *)spacket, sizeof(spacket)) != 0) {
             printf("Send Failed\n");
-        } else {
-            printf("ROOTNODE Sent\n");
         }
     } while (0);
     //=========================================
@@ -341,11 +311,9 @@ void *manager_worker(void *arg)
     while (1) {
         if (recv_wrap(scon->tcpwrapper, (void *)&rpacket,
                       sizeof(struct vln_packet_header)) != 0) {
-            printf("Connection Lost1\n");
             break;
         }
         if (rpacket.type == UPDATES) {
-            printf("UPDATE: ar unda miego\n");
             uint8_t rpayload[ntohl(rpacket.payload_length)];
             if (recv_wrap(scon->tcpwrapper, (void *)rpayload,
                           ntohl(rpacket.payload_length)))
@@ -356,12 +324,10 @@ void *manager_worker(void *arg)
             memcpy(PACKET_PAYLOAD(spacket), rpayload,
                    ntohl(rpacket.payload_length));
         } else {
-            printf("ERROR: Unknown Packet Type\n");
             break;
         }
     }
 
-    printf("removing connection\n");
     router_remove_connection(curr_net->router, scon->vaddr);
 
     pthread_mutex_lock(&curr_net->connections_lock);
@@ -387,8 +353,6 @@ void *manager_worker(void *arg)
                           sizeof(struct vln_packet_header) +
                               sizeof(struct vln_updatedis_payload)) != 0) {
                 printf("UPDATEDIS Send Failed\n");
-            } else {
-                printf("UPDATEDIS Sent\n");
             }
         }
         pthread_mutex_unlock(&curr_net->connections_lock);
@@ -401,7 +365,7 @@ void *manager_worker(void *arg)
     return NULL;
 }
 
-void recv_connections(int port) // TODO
+void recv_connections(int port)
 {
     int sfd, cfd;
     struct sockaddr_in s_addr, c_addr;
@@ -420,15 +384,6 @@ void recv_connections(int port) // TODO
 
     while (1) {
         cfd = accept(sfd, (struct sockaddr *)&c_addr, &sockaddr_in_size);
-        //===========ZEDMET=============
-        socklen_t c_addr_size = sizeof(struct sockaddr_in);
-        struct sockaddr_in c_addr;
-        getpeername(sfd, (struct sockaddr *)&c_addr, &c_addr_size);
-
-        char adddr[INET_ADDRSTRLEN];
-        inet_ntop(AF_INET, &c_addr.sin_addr, adddr, c_addr_size);
-        printf("Client %s Connected\n", adddr);
-        //==============================
         struct tcpwrapper *tcpwrapper = tcpwrapper_create(cfd, 1024);
         pthread_t t;
         pthread_create(&t, NULL, manager_worker, (void *)tcpwrapper);
@@ -437,10 +392,8 @@ void recv_connections(int port) // TODO
 
 int create_network(void *NotUsed, int argc, char **argv, char **azColName)
 {
-    printf("create_network \n");
     struct vln_network *new_net = malloc(sizeof(struct vln_network));
-    inet_pton(AF_INET, argv[1],
-              &new_net->address); // address 1 bits 2 id 0 name 3
+    inet_pton(AF_INET, argv[1], &new_net->address);
     new_net->address = ntohl(new_net->address);
     new_net->network_bits = atoi(argv[2]);
     new_net->broadcast_address =

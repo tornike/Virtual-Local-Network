@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-#define ADAPTER_NAME "testint1"
+#define ADAPTER_NAME "vlnint"
 #define ADAPTER_NAME_SIZE 17
 
 struct vln_adapter {

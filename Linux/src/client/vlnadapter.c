@@ -67,7 +67,6 @@ struct vln_adapter *vln_adapter_create(int flags)
     if (ioctl(sfd, SIOCGIFFLAGS, &ifr) < 0) {
         printf("Getting adapter flags failed: %s\n", strerror(errno));
     }
-    printf("Flags %d\n", ifr.ifr_flags);
     //------------------------
 
     ifr.ifr_flags = IFF_UP | IFF_RUNNING | IFF_NOARP | IFF_POINTOPOINT;
@@ -103,30 +102,20 @@ int vln_adapter_set_network(struct vln_adapter *adapter, uint32_t vaddr,
     int sfd = socket(AF_INET, SOCK_DGRAM, 0);
 
     if (ioctl(sfd, SIOCSIFADDR, &ifr) < 0) {
-        printf("Setting IP address failed: %s\n", strerror(errno));
         return -1;
-    } else {
-        printf("Set Inet\n");
     }
-
     addr = (struct sockaddr_in *)&ifr.ifr_netmask;
     addr->sin_addr.s_addr = maskaddr;
 
     if (ioctl(sfd, SIOCSIFNETMASK, &ifr) < 0) {
-        printf("Setting mask address failed: %s\n", strerror(errno));
         return -1;
-    } else {
-        printf("Set Mask Address\n");
     }
 
     addr = (struct sockaddr_in *)&ifr.ifr_broadaddr;
     addr->sin_addr.s_addr = broadaddr;
 
     if (ioctl(sfd, SIOCSIFBRDADDR, &ifr) < 0) {
-        printf("Setting brodcast address failed: %s\n", strerror(errno));
         return -1;
-    } else {
-        printf("Set Brodcast Address\n");
     }
     close(sfd);
     return 1;
