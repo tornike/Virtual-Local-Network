@@ -6,7 +6,7 @@ HEADERS = ../lib/tcpwrapper.h ../lib/protocol.h ../router.h ../lib/taskexecutor.
 
 OBJECT_DIR = ../../build/client/
 
-all: check $(OBJECT_DIR)client
+all: check $(OBJECT_DIR)client $(OBJECT_DIR)starter
 
 check:
 ifeq ("$(wildcard $(OBJECT_DIR))", "")
@@ -31,10 +31,10 @@ $(OBJECT_DIR)router.o: ../router.c
 $(OBJECT_DIR)taskexecutor.o: ../lib/taskexecutor.c
 	$(CC) $(CFLAGS_RELEASE) $< -o $@
 
-starter: starterclient.c $(OBJECT_DIR)tcpwrapper.o
+$(OBJECT_DIR)starter: starterclient.c $(OBJECT_DIR)tcpwrapper.o
 	$(CC) $^ -o $(OBJECT_DIR)$@ $(LIBS)
 
 clean:
-	rm $(OBJECT_DIR)*
+	rm -r $(OBJECT_DIR)
 
 	
