@@ -158,7 +158,7 @@ int main(int argc, char const *argv[])
     strcpy(configpath, homedir);
     strcat(configpath, "/.vln/vln.config");
 
-    fp = fopen(configpath, "r");
+    fp = fopen("vln.config", "r");
 
     if (fp == NULL) {
         printf("Incorrect config\n");
@@ -223,7 +223,7 @@ int main(int argc, char const *argv[])
             char *argvc[1];
             argvc[0] = NULL;
             chdir(instdir);
-            execv("vlnclient", argvc);
+            execv("client", argvc);
         }
         sleep(1);
         if (connect(sock, (struct sockaddr *)&addr,

@@ -436,43 +436,14 @@ int main(int argc, char **argv)
 {
     FILE *fp;
     char buffer[1024];
-    struct json_object *parsed_json;
-    struct json_object *server_ip;
-    struct json_object *server_port;
-
-    struct passwd *pw = getpwuid(getuid());
-    const char *homedir = pw->pw_dir;
-
-    char configpath[strlen(homedir) + strlen("/.vln/vln.config") + 1];
-    memset(configpath, 0, strlen(homedir) + strlen("/.vln/vln.config") + 1);
-    strcpy(configpath, homedir);
-    strcat(configpath, "/.vln/vln.config");
-
-    fp = fopen(configpath, "r");
-
-    if (fp == NULL) {
-        return -1;
-    }
-    fread(buffer, 1024, 1, fp);
-    fclose(fp);
-
-    parsed_json = json_tokener_parse(buffer);
-
-    json_object_object_get_ex(parsed_json, "server_ip", &server_ip);
-    json_object_object_get_ex(parsed_json, "server_port", &server_port);
-    if (server_ip == NULL || server_port == NULL) {
-        return -1;
-    }
-
-    inet_pton(AF_INET, (char *)json_object_get_string(server_ip), &_rserverip);
+    inet_pton(AF_INET, "192.168.33.17", &_rserverip);
     _rserverip = ntohl(_rserverip);
-
     pthread_rwlock_init(&_vln_network_lock, NULL);
     _db = get_db();
     create_table(_db);
 
     select_all_network(_db, create_network);
-    recv_connections(json_object_get_int(server_port));
+    recv_connections(33508);
 
     return 0;
 }

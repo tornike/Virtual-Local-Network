@@ -555,7 +555,7 @@ int read_config()
     strcpy(configpath, homedir);
     strcat(configpath, "/.vln/vln.config");
 
-    fp = fopen(configpath, "r");
+    fp = fopen("vln.config", "r");
 
     if (fp == NULL) {
         return -1;
