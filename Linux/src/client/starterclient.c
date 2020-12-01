@@ -158,7 +158,7 @@ int main(int argc, char const *argv[])
     strcpy(configpath, homedir);
     strcat(configpath, "/.vln/vln.config");
 
-    fp = fopen("vln.config", "r");
+    fp = fopen("../../src/client/vln.config", "r");
 
     if (fp == NULL) {
         printf("Incorrect config\n");
@@ -204,7 +204,7 @@ int main(int argc, char const *argv[])
 
     char sockpath[50];
     memset(sockpath, 0, 50);
-    strcpy(sockpath, instdir);
+    strcpy(sockpath, "/run/vln/");
     strcat(sockpath, "socket");
 
     addr.sun_family = AF_UNIX;

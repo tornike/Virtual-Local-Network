@@ -320,7 +320,7 @@ int starter_recv_connections()
 
     char sockpath[50];
     memset(sockpath, 0, 50);
-    strcpy(sockpath, _installation_dir);
+    strcpy(sockpath, "/run/vln/");
     strcat(sockpath, "socket");
 
     memset(&address, 0, sizeof(address));
@@ -555,7 +555,7 @@ int read_config()
     strcpy(configpath, homedir);
     strcat(configpath, "/.vln/vln.config");
 
-    fp = fopen("vln.config", "r");
+    fp = fopen("../../src/client/vln.config", "r");
 
     if (fp == NULL) {
         return -1;
