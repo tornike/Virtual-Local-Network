@@ -6,15 +6,15 @@ HEADERS = ../lib/tcpwrapper.h ../lib/protocol.h ../router.h ../lib/taskexecutor.
 
 OBJECT_DIR = ../../build/server/
 
-all: check server
+all: check $(OBJECT_DIR)server
 
 check:
 ifeq ("$(wildcard $(OBJECT_DIR))", "")
-	mkdir -p $(OBJECT_DIR)
+	mkdir $(OBJECT_DIR)
 endif
 
-server: $(OBJECT_DIR)main.o $(OBJECT_DIR)tcpwrapper.o $(OBJECT_DIR)router.o $(OBJECT_DIR)taskexecutor.o $(OBJECT_DIR)db.o $(OBJECT_DIR)rxi_log.o $(HEADERS)
-	$(CC) $^ -o $(OBJECT_DIR)$@ $(LIBS)
+$(OBJECT_DIR)server: $(OBJECT_DIR)main.o $(OBJECT_DIR)tcpwrapper.o $(OBJECT_DIR)router.o $(OBJECT_DIR)taskexecutor.o $(OBJECT_DIR)db.o $(OBJECT_DIR)rxi_log.o $(HEADERS)
+	$(CC) $^ -o $@ $(LIBS)
 
 $(OBJECT_DIR)main.o: main.c
 	$(CC) $(CFLAGS_RELEASE) $< -o $@

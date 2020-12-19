@@ -23,6 +23,8 @@
 #include "../router.h"
 #include "db.h"
 
+#include <vln_default_config.h>
+
 #define BACKLOG 10
 
 /* Prototypes */
