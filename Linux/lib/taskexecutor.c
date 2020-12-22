@@ -5,17 +5,19 @@
 #include <stdio.h>
 
 #include "taskexecutor.h"
-#include "utlist.h"
+#include <utlist.h>
 
 #define DIE 0
 
-struct task_info_wrapper {
+struct task_info_wrapper
+{
     struct task_info *tinfo;
     struct task_info_wrapper *next;
     struct task_info_wrapper *prev;
 };
 
-struct taskexecutor {
+struct taskexecutor
+{
     Handler handler;
     void *handler_args;
     struct task_info_wrapper *queue;
@@ -30,9 +32,11 @@ void *executor_worker(void *args)
     struct taskexecutor *executor = (struct taskexecutor *)args;
     struct task_info *cur_task_info;
     struct task_info_wrapper *tiw;
-    while (1) {
+    while (1)
+    {
         pthread_mutex_lock(&executor->queue_lock);
-        if (executor->queue == NULL) {
+        if (executor->queue == NULL)
+        {
             pthread_cond_wait(&executor->queue_cond, &executor->queue_lock);
         }
         tiw = executor->queue;
@@ -41,10 +45,13 @@ void *executor_worker(void *args)
         pthread_mutex_unlock(&executor->queue_lock);
 
         free(tiw);
-        if (cur_task_info->operation == DIE) {
+        if (cur_task_info->operation == DIE)
+        {
             free(cur_task_info);
             break;
-        } else {
+        }
+        else
+        {
             executor->handler(executor->handler_args, cur_task_info);
             free(cur_task_info);
         }

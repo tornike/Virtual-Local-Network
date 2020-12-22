@@ -1,8 +1,8 @@
 #ifndef __VLN_ROUTER__
 #define __VLN_ROUTER__
 
-#include "lib/protocol.h"
-#include "lib/taskexecutor.h"
+#include "../lib/protocol.h"
+#include "../lib/taskexecutor.h"
 #include <stdlib.h>
 
 #define SLOT_SIZE 4096

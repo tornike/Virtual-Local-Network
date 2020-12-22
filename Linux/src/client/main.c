@@ -18,13 +18,14 @@
 #include <sys/un.h>
 #include <unistd.h>
 
-#include "../lib/protocol.h"
-#include "../lib/taskexecutor.h"
-#include "../lib/tcpwrapper.h"
-#include "../lib/uthash.h"
+#include "../../lib/protocol.h"
+#include "../../lib/taskexecutor.h"
+#include "../../lib/tcpwrapper.h"
 #include "../router.h"
 #include "starterprotocol.h"
 #include "vlnadapter.h"
+
+#include <uthash.h>
 
 struct vln_interface {
     uint32_t address;

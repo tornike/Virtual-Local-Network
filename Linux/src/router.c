@@ -16,10 +16,11 @@
 
 #include <stdio.h>
 
-#include "lib/protocol.h"
-#include "lib/taskexecutor.h"
-#include "lib/uthash.h"
-#include "lib/utlist.h"
+#include "../lib/protocol.h"
+#include "../lib/taskexecutor.h"
+
+#include <uthash.h>
+#include <utlist.h>
 
 #define MAX_PACKETS 100
 #define MAX_EVENTS 10

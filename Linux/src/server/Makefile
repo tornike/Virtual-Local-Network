@@ -2,7 +2,7 @@ CC = gcc
 CFLAGS_RELEASE = -Wall -c
 CFLAGS_DEBUG = -Wall -g -c
 LIBS = -lpthread -lm -l sqlite3 -ljson-c
-HEADERS = ../lib/tcpwrapper.h ../lib/protocol.h ../router.h ../lib/taskexecutor.h db.h ../rxi_log.h
+HEADERS = ../../lib/tcpwrapper.h ../../lib/protocol.h ../router.h ../../lib/taskexecutor.h db.h ../../include/rxi_log.h
 
 OBJECT_DIR = ../../build/server/
 
@@ -22,16 +22,16 @@ $(OBJECT_DIR)main.o: main.c
 $(OBJECT_DIR)db.o: db.c
 	$(CC) $(CFLAGS_RELEASE) $< -o $@
 
-$(OBJECT_DIR)tcpwrapper.o: ../lib/tcpwrapper.c
+$(OBJECT_DIR)tcpwrapper.o: ../../lib/tcpwrapper.c
 	$(CC) $(CFLAGS_RELEASE) $< -o $@
 
 $(OBJECT_DIR)router.o: ../router.c
 	$(CC) $(CFLAGS_RELEASE) $< -o $@
 
-$(OBJECT_DIR)taskexecutor.o: ../lib/taskexecutor.c
+$(OBJECT_DIR)taskexecutor.o: ../../lib/taskexecutor.c
 	$(CC) $(CFLAGS_RELEASE) $< -o $@
 
-$(OBJECT_DIR)rxi_log.o: ../rxi_log.c
+$(OBJECT_DIR)rxi_log.o: ../../lib/rxi_log.c
 	$(CC) $(CFLAGS_RELEASE) -DLOG_USE_COLOR $< -o $@
 
 clean:

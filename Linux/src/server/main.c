@@ -15,14 +15,14 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "../lib/protocol.h"
-#include "../lib/taskexecutor.h"
-#include "../lib/tcpwrapper.h"
-#include "../lib/uthash.h"
-#include "../lib/utlist.h"
+#include "../../lib/protocol.h"
+#include "../../lib/taskexecutor.h"
+#include "../../lib/tcpwrapper.h"
 #include "../router.h"
 #include "db.h"
 
+#include <uthash.h>
+#include <utlist.h>
 #include <vln_default_config.h>
 
 #define BACKLOG 10
@@ -436,15 +436,15 @@ int create_network(void *NotUsed, int argc, char **argv, char **azColName)
 
 int main(int argc, char **argv)
 {
-    FILE *fp;
-    char buffer[1024];
+
     inet_pton(AF_INET, "192.168.33.17", &_rserverip);
     _rserverip = ntohl(_rserverip);
     pthread_rwlock_init(&_vln_network_lock, NULL);
+
     _db = get_db();
     create_table(_db);
-
     select_all_network(_db, create_network);
+
     recv_connections(33508);
 
     return 0;

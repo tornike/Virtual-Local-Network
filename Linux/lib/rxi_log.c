@@ -20,7 +20,7 @@
  * IN THE SOFTWARE.
  */
 
-#include "rxi_log.h"
+#include <rxi_log.h>
 
 #define MAX_CALLBACKS 32
 
