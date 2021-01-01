@@ -145,36 +145,36 @@ int main(int argc, char const *argv[])
     int sock = 0;
     struct sockaddr_un addr;
 
-    FILE *fp;
-    char buffer[1024];
-    struct json_object *parsed_json;
-    struct json_object *installation_directory;
+    // FILE *fp;
+    // char buffer[1024];
+    // struct json_object *parsed_json;
+    // struct json_object *installation_directory;
 
-    struct passwd *pw = getpwuid(getuid());
-    const char *homedir = pw->pw_dir;
+    // struct passwd *pw = getpwuid(getuid());
+    // const char *homedir = pw->pw_dir;
 
-    char configpath[strlen(homedir) + strlen("/.vln/vln.config") + 1];
-    memset(configpath, 0, strlen(homedir) + strlen("/.vln/vln.config") + 1);
-    strcpy(configpath, homedir);
-    strcat(configpath, "/.vln/vln.config");
+    // char configpath[strlen(homedir) + strlen("/.vln/vln.config") + 1];
+    // memset(configpath, 0, strlen(homedir) + strlen("/.vln/vln.config") + 1);
+    // strcpy(configpath, homedir);
+    // strcat(configpath, "/.vln/vln.config");
 
-    fp = fopen("../../src/client/vln.config", "r");
+    // fp = fopen("../../src/client/vln.config", "r");
 
-    if (fp == NULL) {
-        printf("Incorrect config\n");
-        return -1;
-    }
-    fread(buffer, 1024, 1, fp);
-    fclose(fp);
+    // if (fp == NULL) {
+    //     printf("Incorrect config\n");
+    //     return -1;
+    // }
+    // fread(buffer, 1024, 1, fp);
+    // fclose(fp);
 
-    parsed_json = json_tokener_parse(buffer);
+    // parsed_json = json_tokener_parse(buffer);
 
-    json_object_object_get_ex(parsed_json, "installation_directory",
-                              &installation_directory);
-    if (installation_directory == NULL) {
-        printf("Incorrect config\n");
-        return -1;
-    }
+    // json_object_object_get_ex(parsed_json, "installation_directory",
+    //                           &installation_directory);
+    // if (installation_directory == NULL) {
+    //     printf("Incorrect config\n");
+    //     return -1;
+    // }
 
     if (argc == 4 && strcmp(argv[1], "connect") == 0) {
         spacket = get_connect_payload(argv);
@@ -200,7 +200,7 @@ int main(int argc, char const *argv[])
 
     char instdir[50];
     memset(instdir, 0, 50);
-    strcpy(instdir, (char *)json_object_get_string(installation_directory));
+    strcpy(instdir, "./");
 
     char sockpath[50];
     memset(sockpath, 0, 50);

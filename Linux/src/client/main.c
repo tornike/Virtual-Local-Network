@@ -541,45 +541,49 @@ int starter_recv_connections()
 
 int read_config()
 {
-    FILE *fp;
-    char buffer[1024];
-    struct json_object *parsed_json;
-    struct json_object *server_ip;
-    struct json_object *server_port;
-    struct json_object *installation_directory;
+    // FILE *fp;
+    // char buffer[1024];
+    // struct json_object *parsed_json;
+    // struct json_object *server_ip;
+    // struct json_object *server_port;
+    // struct json_object *installation_directory;
 
-    struct passwd *pw = getpwuid(getuid());
-    const char *homedir = pw->pw_dir;
+    // struct passwd *pw = getpwuid(getuid());
+    // const char *homedir = pw->pw_dir;
 
-    char configpath[strlen(homedir) + strlen("/.vln/vln.config") + 1];
-    memset(configpath, 0, strlen(homedir) + strlen("/.vln/vln.config") + 1);
-    strcpy(configpath, homedir);
-    strcat(configpath, "/.vln/vln.config");
+    // char configpath[strlen(homedir) + strlen("/.vln/vln.config") + 1];
+    // memset(configpath, 0, strlen(homedir) + strlen("/.vln/vln.config") + 1);
+    // strcpy(configpath, homedir);
+    // strcat(configpath, "/.vln/vln.config");
 
-    fp = fopen("../../src/client/vln.config", "r");
+    // fp = fopen("../../src/client/vln.config", "r");
 
-    if (fp == NULL) {
-        return -1;
+    // if (fp == NULL) {
+    //     return -1;
+    // }
+    // fread(buffer, 1024, 1, fp);
+    // fclose(fp);
+
+    // parsed_json = json_tokener_parse(buffer);
+
+    // json_object_object_get_ex(parsed_json, "server_ip", &server_ip);
+    // json_object_object_get_ex(parsed_json, "server_port", &server_port);
+    // json_object_object_get_ex(parsed_json, "installation_directory",
+    //                           &installation_directory);
+    // if (server_ip == NULL || server_port == NULL ||
+    //     installation_directory == NULL) {
+
+    //     return -1;
+    // }
+    _server_addr = "192.168.33.17";
+
+    _server_port_temp = 33508;
+
+    _installation_dir = "./";
+
+    if (access("/run/vln/", F_OK) != 0 && errno == ENOENT) {
+        mkdir("/run/vln/", S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH);
     }
-    fread(buffer, 1024, 1, fp);
-    fclose(fp);
-
-    parsed_json = json_tokener_parse(buffer);
-
-    json_object_object_get_ex(parsed_json, "server_ip", &server_ip);
-    json_object_object_get_ex(parsed_json, "server_port", &server_port);
-    json_object_object_get_ex(parsed_json, "installation_directory",
-                              &installation_directory);
-    if (server_ip == NULL || server_port == NULL ||
-        installation_directory == NULL) {
-
-        return -1;
-    }
-    _server_addr = (char *)json_object_get_string(server_ip);
-
-    _server_port_temp = json_object_get_int(server_port);
-
-    _installation_dir = (char *)json_object_get_string(installation_directory);
 
     return 1;
 }
