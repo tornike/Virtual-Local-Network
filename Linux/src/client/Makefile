@@ -14,7 +14,7 @@ ifeq ("$(wildcard $(OBJECT_DIR))", "")
 endif
 
 $(OBJECT_DIR)client: $(OBJECT_DIR)main.o $(OBJECT_DIR)tcpwrapper.o $(OBJECT_DIR)router.o $(OBJECT_DIR)taskexecutor.o $(OBJECT_DIR)vlnadapter.o $(HEADERS)
-	$(CC) $^ -o $@ ../../build/server/rxi_log.o $(LIBS)
+	$(CC) $^ -o $@ ../../build/rxi_log.o $(LIBS)
 
 $(OBJECT_DIR)main.o: main.c
 	$(CC) $(CFLAGS_RELEASE) $< -o $@

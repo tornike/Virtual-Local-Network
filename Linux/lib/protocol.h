@@ -35,17 +35,20 @@
 
 typedef uint8_t vln_packet_type;
 
-struct vln_packet_header {
+struct vln_packet_header
+{
     vln_packet_type type;
     uint32_t payload_length; // TODO endian
 } __attribute__((packed));
 
-struct vln_error_payload {
+struct vln_error_payload
+{
     uint8_t type;
 } __attribute__((packed));
 
 /// vadr real adry real port
-struct vln_updates_payload {
+struct vln_updates_payload
+{
     uint32_t svaddr;
     uint32_t dvaddr;
     uint32_t vaddr;
@@ -53,17 +56,20 @@ struct vln_updates_payload {
     uint16_t rport;
 } __attribute__((packed));
 
-struct vln_updatedis_payload {
+struct vln_updatedis_payload
+{
     uint32_t vaddr;
 } __attribute__((packed));
 
-struct vln_init_payload {
+struct vln_init_payload
+{
     uint32_t vaddr;
     uint32_t maskaddr;
     uint32_t broadaddr;
 } __attribute__((packed));
 
-struct vln_vaddr_payload {
+struct vln_vaddr_payload
+{
     uint32_t ip_addr;
     /*
         VIRTUAL ADDR, SERVER, UNUSED FLAGS ...
@@ -71,45 +77,52 @@ struct vln_vaddr_payload {
     uint8_t flags;
 } __attribute__((packed));
 
-struct vln_addr_payload {
+struct vln_addr_payload
+{
     uint32_t raddr;
     uint16_t port;
 } __attribute__((packed));
 
-struct vln_rootnode_payload {
+struct vln_rootnode_payload
+{
     uint32_t vaddr;
     uint32_t raddr;
     uint16_t rport;
 } __attribute__((packed));
 
-struct vln_connect_payload { /* Connect packet payload for client */
+struct vln_connect_payload
+{ /* Connect packet payload for client */
     char network_name[REQUEST_MAX_LENGTH];
     char network_password[REQUEST_MAX_LENGTH];
 } __attribute__((packed));
 
-struct vln_create_payload {
+struct vln_create_payload
+{
     char network_name[REQUEST_MAX_LENGTH];
     char network_password[REQUEST_MAX_LENGTH];
     char addres[REQUEST_MAX_LENGTH];
     char bit[NETWORK_BIT];
 } __attribute__((packed));
 
-struct vln_data_packet_header {
+struct vln_data_packet_header
+{
     vln_packet_type type;
 } __attribute__((packed));
 
-struct vln_data_init_payload {
+struct vln_data_init_payload
+{
     uint32_t vaddr; /* Addr of init sender */
 } __attribute__((packed));
 
-struct vln_data_keepalive_payload {
+struct vln_data_keepalive_payload
+{
     uint32_t vaddr; /* Addr of keepalive sender */
 } __attribute__((packed));
 
-#define PACKET_PAYLOAD(packet)                                                 \
+#define PACKET_PAYLOAD(packet) \
     ((uint8_t *)packet + sizeof(struct vln_packet_header))
 
-#define DATA_PACKET_PAYLOAD(packet)                                            \
+#define DATA_PACKET_PAYLOAD(packet) \
     ((uint8_t *)packet + sizeof(struct vln_data_packet_header))
 
 #endif
