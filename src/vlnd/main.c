@@ -42,7 +42,7 @@ int main(int argc, char **argv)
         log_debug("fork failed error: %s", strerror(errno));
         exit(EXIT_FAILURE);
     } else if (child_pid > 0) {
-        log_trace("child with %ul created", child_pid);
+        log_trace("child with %lu created", child_pid);
         read(pipe_fds[0], buffer, 64); // temporary waiting point
     } else {
         log_trace("logging from child process");
@@ -70,7 +70,8 @@ int main(int argc, char **argv)
 
         if (bind(sfd, (struct sockaddr *)&s_addr, sizeof(struct sockaddr_in)) !=
             0) {
-            log_trace("first bind failed");
+            log_error("bind failed");
+            exit(EXIT_FAILURE);
         }
 
         start_server(network, -1, sfd);
