@@ -23,7 +23,7 @@
 #include "../../lib/tcpwrapper.h"
 #include "../router.h"
 #include "starterprotocol.h"
-#include "vlnadapter.h"
+#include <vln_adapter.h>
 
 #include <uthash.h>
 
@@ -223,7 +223,7 @@ static struct vln_interface *create_interface(uint32_t addr_be,
                                               uint32_t mask_addr_be,
                                               struct tcpwrapper *wrap)
 {
-    struct vln_adapter *adapter = vln_adapter_create(IFF_TUN | IFF_NO_PI);
+    struct vln_adapter *adapter = vln_adapter_create("vlnint");
 
     if (vln_adapter_set_network(adapter, addr_be, mask_addr_be,
                                 broad_addr_be) == -1) {

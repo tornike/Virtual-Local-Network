@@ -14,9 +14,9 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "vlnadapter.h"
+#include <vln_adapter.h>
 
-struct vln_adapter *vln_adapter_create(int flags)
+struct vln_adapter *vln_adapter_create(/* const int flags, */ const char *name)
 {
     int err, sfd;
     struct ifreq ifr;
@@ -35,12 +35,12 @@ struct vln_adapter *vln_adapter_create(int flags)
         return NULL;
     }
 
-    memset(adapter->name, 0, ADAPTER_NAME_SIZE);
-    strcpy(adapter->name, ADAPTER_NAME);
+    memset(adapter->name, 0, VLN_ADAPTER_NAME_SIZE);
+    strcpy(adapter->name, name);
 
     memset(&ifr, 0, sizeof(struct ifreq));
 
-    ifr.ifr_flags = flags;
+    ifr.ifr_flags = IFF_TUN | IFF_NO_PI; // flags;
 
     strcpy(ifr.ifr_name, adapter->name);
 
@@ -86,33 +86,33 @@ struct vln_adapter *vln_adapter_create(int flags)
     return adapter;
 }
 
-int vln_adapter_set_network(struct vln_adapter *adapter, uint32_t vaddr,
+int vln_adapter_set_network(struct vln_adapter *adapter, uint32_t addr,
                             uint32_t maskaddr, uint32_t broadaddr)
 {
 
-    struct sockaddr_in *addr;
+    struct sockaddr_in *addr_in;
     struct ifreq ifr;
 
     strcpy(ifr.ifr_name, adapter->name);
 
-    addr = (struct sockaddr_in *)&ifr.ifr_addr;
-    addr->sin_addr.s_addr = vaddr;
-    addr->sin_family = AF_INET;
+    addr_in = (struct sockaddr_in *)&ifr.ifr_addr;
+    addr_in->sin_addr.s_addr = addr;
+    addr_in->sin_family = AF_INET;
 
     int sfd = socket(AF_INET, SOCK_DGRAM, 0);
 
     if (ioctl(sfd, SIOCSIFADDR, &ifr) < 0) {
         return -1;
     }
-    addr = (struct sockaddr_in *)&ifr.ifr_netmask;
-    addr->sin_addr.s_addr = maskaddr;
+    addr_in = (struct sockaddr_in *)&ifr.ifr_netmask;
+    addr_in->sin_addr.s_addr = maskaddr;
 
     if (ioctl(sfd, SIOCSIFNETMASK, &ifr) < 0) {
         return -1;
     }
 
-    addr = (struct sockaddr_in *)&ifr.ifr_broadaddr;
-    addr->sin_addr.s_addr = broadaddr;
+    addr_in = (struct sockaddr_in *)&ifr.ifr_broadaddr;
+    addr_in->sin_addr.s_addr = broadaddr;
 
     if (ioctl(sfd, SIOCSIFBRDADDR, &ifr) < 0) {
         return -1;
@@ -120,6 +120,14 @@ int vln_adapter_set_network(struct vln_adapter *adapter, uint32_t vaddr,
     close(sfd);
     return 1;
 }
+
+void vln_adapter_set_network2(struct vln_adapter *adapter,
+                              struct vln_network *network, uint32_t vaddr)
+{
+    vln_adapter_set_network(adapter, htonl(vaddr), htonl(network->mask_address),
+                            htonl(network->mask_address));
+}
+
 void vln_adapter_destroy(struct vln_adapter *adapter)
 {
     vln_adapter_set_network(adapter, 0, 0, 0);

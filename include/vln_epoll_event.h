@@ -2,7 +2,7 @@
 #define __VLN_EPOLL_EVENT__
 
 typedef enum vln_descriptor_type {
-    Host_Socket,
+    Peer_Socket,
     Router_Pipe,
     Listen_Socket
 } vln_descriptor_type;
