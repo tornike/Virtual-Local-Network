@@ -16,7 +16,6 @@
 
 #include <stdio.h>
 
-#include "../lib/protocol.h"
 #include "../lib/taskexecutor.h"
 
 #include <uthash.h>
@@ -369,12 +368,12 @@ void router_send(struct router *router, struct router_buffer_slot *slot)
 
 void router_send_init(struct router *router, uint32_t raddr, uint32_t rport)
 {
-    uint8_t spacket[sizeof(struct vln_data_packet_header) +
-                    sizeof(struct vln_data_init_payload)];
-    struct vln_data_packet_header *sheader =
-        (struct vln_data_packet_header *)spacket;
-    struct vln_data_init_payload *spayload =
-        (struct vln_data_init_payload *)DATA_PACKET_PAYLOAD(spacket);
+    uint8_t spacket[sizeof(struct router_packet_header) +
+                    sizeof(struct router_init_payload)];
+    struct router_packet_header *sheader =
+        (struct router_packet_header *)spacket;
+    struct router_init_payload *spayload =
+        (struct router_init_payload *)ROUTER_PACKET_PAYLOAD(spacket);
     sheader->type = INIT;
     spayload->vaddr = htonl(router->vaddr);
 
@@ -429,7 +428,7 @@ static void *recv_worker(void *arg)
     memset(&iti, 0, sizeof(struct itimerspec));
     iti.it_value.tv_sec = 30;
 
-    struct vln_data_packet_header *packeth;
+    struct router_packet_header *packeth;
     void *packetd;
     struct router_buffer_slot *slot;
     while (1) {
@@ -448,10 +447,10 @@ static void *recv_worker(void *arg)
             break;
         }
 
-        packeth = (struct vln_data_packet_header *)slot->buffer;
+        packeth = (struct router_packet_header *)slot->buffer;
 
         if (packeth->type == DATA) {
-            packetd = ((struct vln_data_packet_header *)slot->buffer) + 1;
+            packetd = ((struct router_packet_header *)slot->buffer) + 1;
 
             vaddr = ntohl(((struct iphdr *)packetd)->daddr);
             svaddr = ntohl(((struct iphdr *)packetd)->saddr);
@@ -472,8 +471,8 @@ static void *recv_worker(void *arg)
                 router_send(router, slot);
             }
         } else if (packeth->type == KEEPALIVE) {
-            struct vln_data_keepalive_payload *rpayload =
-                (struct vln_data_keepalive_payload *)DATA_PACKET_PAYLOAD(
+            struct router_keepalive_payload *rpayload =
+                (struct router_keepalive_payload *)ROUTER_PACKET_PAYLOAD(
                     slot->buffer);
 
             vaddr = ntohl(rpayload->vaddr);
@@ -498,8 +497,8 @@ static void *recv_worker(void *arg)
 
             router_add_free_slot(router, slot);
         } else if (packeth->type == INIT) {
-            struct vln_data_init_payload *payload =
-                (struct vln_data_init_payload *)DATA_PACKET_PAYLOAD(packeth);
+            struct router_init_payload *payload =
+                (struct router_init_payload *)ROUTER_PACKET_PAYLOAD(packeth);
 
             struct router_connection *new_con = create_connection(
                 ntohl(payload->vaddr), ntohl(raddr.sin_addr.s_addr),
@@ -570,8 +569,8 @@ static void *send_worker(void *arg)
         DL_DELETE(router->send_buffer, slot_to_send);
         pthread_mutex_unlock(&router->send_buffer_lock);
 
-        packeth = ((struct vln_data_packet_header *)slot_to_send->buffer);
-        packetd = ((struct vln_data_packet_header *)slot_to_send->buffer) + 1;
+        packeth = ((struct router_packet_header *)slot_to_send->buffer);
+        packetd = ((struct router_packet_header *)slot_to_send->buffer) + 1;
 
         vaddr = ntohl(((struct iphdr *)packetd)->daddr);
 
@@ -650,12 +649,12 @@ static void *keep_alive_worker(void *arg)
                 uint64_t timerexps;
                 read(kinfo->timerfd, &timerexps, sizeof(uint64_t));
 
-                uint8_t spacket[sizeof(struct vln_data_packet_header) +
-                                sizeof(struct vln_data_keepalive_payload)];
-                struct vln_data_packet_header *sheader =
-                    (struct vln_data_packet_header *)spacket;
-                struct vln_data_keepalive_payload *spayload =
-                    (struct vln_data_keepalive_payload *)DATA_PACKET_PAYLOAD(
+                uint8_t spacket[sizeof(struct router_packet_header) +
+                                sizeof(struct router_keepalive_payload)];
+                struct router_packet_header *sheader =
+                    (struct router_packet_header *)spacket;
+                struct router_keepalive_payload *spayload =
+                    (struct router_keepalive_payload *)ROUTER_PACKET_PAYLOAD(
                         spacket);
                 sheader->type = KEEPALIVE;
                 spayload->vaddr = htonl(router->vaddr);

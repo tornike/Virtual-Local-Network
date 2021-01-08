@@ -10,7 +10,6 @@ struct vln_network
     uint32_t address;
     uint32_t mask_address;
     uint32_t broadcast_address;
-    uint8_t network_bits;
 };
 
 #endif

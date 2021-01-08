@@ -2,6 +2,7 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netinet/in.h>
+#include <pthread.h>
 #include <rxi_log.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -10,29 +11,19 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <uthash.h>
 #include <vln_constants.h>
+#include <vln_types.h>
 
-#include "../lib/protocol.h"
 #include "../lib/taskexecutor.h"
 #include "../router.h"
-#include "npb_manager.h"
+#include "mngr_protocol.h"
 #include "server.h"
 #include "vln_epoll_event.h"
-#include <uthash.h>
+#include "vln_host.h"
 
 #define EPOLL_MAX_EVENTS 10
 #define ACCEPT_BACKLOG 10
-
-struct vln_host {
-    uint32_t vaddr;
-    uint32_t udp_addr;
-    uint32_t udp_port;
-    int sock_fd;
-
-    struct mngr_packet_status rpacket;
-
-    UT_hash_handle hh;
-};
 
 /* Global Variables */
 static int _epoll_fd;
@@ -40,6 +31,73 @@ static struct vln_host *_hosts;
 static struct vln_host *_root_host;
 static struct vln_network *_network;
 static struct router *_router;
+static struct vln_adapter *_adapter;
+pthread_t _sender, _receiver;
+
+/* Function prorotypes */
+static void *recv_thread(void *arg);
+static void *send_thread(void *arg);
+
+static void cleanup_handler(void *arg)
+{
+    struct router_buffer_slot *slot = (struct router_buffer_slot *)arg;
+    router_add_free_slot(_router, slot);
+}
+
+static void *recv_thread(void *arg)
+{
+    pthread_setcanceltype(PTHREAD_CANCEL_DEFERRED, NULL);
+
+    struct router_buffer_slot *slot;
+    while (true) {
+        slot = router_receive(_router); // waiting point
+
+        if (slot == NULL)
+            break;
+
+        pthread_cleanup_push(cleanup_handler, slot);
+
+        write(_adapter->fd, slot->buffer + sizeof(struct router_packet_header),
+              slot->used_size - sizeof(struct router_packet_header));
+
+        pthread_cleanup_pop(0);
+
+        router_add_free_slot(_router, slot);
+    }
+    return NULL;
+}
+
+static void *send_thread(void *arg)
+{
+    pthread_setcanceltype(PTHREAD_CANCEL_DEFERRED, NULL);
+
+    struct router_buffer_slot *slot;
+    while (true) {
+        slot = router_get_free_slot(_router); // waiting point
+
+        if (slot == NULL)
+            break;
+
+        pthread_cleanup_push(cleanup_handler, slot);
+
+        slot->used_size = read(
+            _adapter->fd, slot->buffer + sizeof(struct router_packet_header),
+            SLOT_SIZE -
+                sizeof(struct router_packet_header)); // Cancelation point.
+
+        pthread_cleanup_pop(0);
+
+        if (slot->used_size < 1) {
+            router_add_free_slot(_router, slot);
+            break;
+        }
+
+        slot->used_size += sizeof(struct router_packet_header);
+        ((struct router_packet_header *)slot->buffer)->type = DATA;
+        router_send(_router, slot);
+    }
+    return NULL;
+}
 
 void router_listener(void *args, struct task_info *tinfo)
 {
@@ -108,16 +166,16 @@ void destroy_host(struct vln_host *h)
     free(h);
 }
 
-static void send_error(vln_packet_type type, int sock_fd)
+static void send_error(mngr_packet_type type, int sock_fd)
 {
-    uint8_t serror[sizeof(struct vln_packet_header) +
-                   sizeof(struct vln_error_payload)];
+    uint8_t serror[sizeof(struct mngr_packet_header) +
+                   sizeof(struct mngr_error_payload)];
     memset(serror, 0, sizeof(serror));
-    struct vln_packet_header *sheader = (struct vln_packet_header *)serror;
-    sheader->payload_length = htonl(sizeof(struct vln_error_payload));
+    struct mngr_packet_header *sheader = (struct mngr_packet_header *)serror;
+    sheader->payload_length = htonl(sizeof(struct mngr_error_payload));
     sheader->type = ERROR;
-    struct vln_error_payload *spayload =
-        (struct vln_error_payload *)PACKET_PAYLOAD(serror);
+    struct mngr_error_payload *spayload =
+        (struct mngr_error_payload *)PACKET_PAYLOAD(serror);
     spayload->type = type;
 
     if (send(sock_fd, (void *)serror, sizeof(serror), 0) != sizeof(serror)) {
@@ -137,7 +195,7 @@ static void accept_connection(int listening_sock)
                  strerror(errno));
     } else {
         vln_epoll_data_t d = {.ptr = create_host(client_fd)};
-        epoll_register(client_fd, Host_Socket, EPOLLIN | EPOLLRDHUP, &d);
+        epoll_register(client_fd, Peer_Socket, EPOLLIN | EPOLLRDHUP, &d);
         log_info("accepted new connection");
     }
 }
@@ -150,13 +208,14 @@ static void handle_host_disconnect(struct vln_host *h)
 
     //==============SEND PeerDisconnected===============
     do {
-        uint8_t spacket[sizeof(struct vln_packet_header) +
-                        sizeof(struct vln_updatedis_payload)];
-        struct vln_packet_header *sheader = (struct vln_packet_header *)spacket;
-        struct vln_updatedis_payload *spayload =
-            (struct vln_updatedis_payload *)PACKET_PAYLOAD(spacket);
+        uint8_t spacket[sizeof(struct mngr_packet_header) +
+                        sizeof(struct mngr_updatedis_payload)];
+        struct mngr_packet_header *sheader =
+            (struct mngr_packet_header *)spacket;
+        struct mngr_updatedis_payload *spayload =
+            (struct mngr_updatedis_payload *)PACKET_PAYLOAD(spacket);
         sheader->type = UPDATEDIS;
-        sheader->payload_length = htonl(sizeof(struct vln_updatedis_payload));
+        sheader->payload_length = htonl(sizeof(struct mngr_updatedis_payload));
         spayload->vaddr = htonl(h->vaddr);
 
         struct vln_host *elem;
@@ -165,8 +224,8 @@ static void handle_host_disconnect(struct vln_host *h)
             if (elem == _root_host)
                 continue;
             if (send(elem->sock_fd, (void *)spacket,
-                     sizeof(struct vln_packet_header) +
-                         sizeof(struct vln_updatedis_payload),
+                     sizeof(struct mngr_packet_header) +
+                         sizeof(struct mngr_updatedis_payload),
                      0) != sizeof(spacket)) {
                 log_error("failed to send PEERCONNECTED 1 error: %s",
                           strerror(errno));
@@ -183,55 +242,58 @@ static void serve_packet(struct vln_host *h)
 {
     if (h->rpacket.header->type == CONNECT) {
         log_trace("received connect packet");
-        struct vln_connect_payload *payload =
-            (struct vln_connect_payload *)payload;
+        struct mngr_connect_payload *payload =
+            (struct mngr_connect_payload *)payload;
 
         if (strcmp((const char *)_network->name, payload->network_name) != 0) {
             send_error(NAME_OR_PASSWOR, h->sock_fd);
+            log_error("incorrect credentials");
             return;
         }
         //==============SEND INIT===============
         do {
-            uint8_t spacket[sizeof(struct vln_packet_header) +
-                            sizeof(struct vln_init_payload)];
-            struct vln_packet_header *sheader =
-                (struct vln_packet_header *)spacket;
-            struct vln_init_payload *spayload =
-                (struct vln_init_payload *)PACKET_PAYLOAD(spacket);
-            sheader->type = INIT;
-            sheader->payload_length = htonl(sizeof(struct vln_init_payload));
+            uint8_t spacket[sizeof(struct mngr_packet_header) +
+                            sizeof(struct mngr_network_payload)];
+            struct mngr_packet_header *sheader =
+                (struct mngr_packet_header *)spacket;
+            struct mngr_network_payload *spayload =
+                (struct mngr_network_payload *)PACKET_PAYLOAD(spacket);
+            sheader->type = NETWORK;
+            sheader->payload_length =
+                htonl(sizeof(struct mngr_network_payload));
             spayload->vaddr = htonl(h->vaddr);
+            spayload->addr = htonl(_network->address);
             spayload->maskaddr = htonl(_network->mask_address);
             spayload->broadaddr = htonl(_network->broadcast_address);
 
             if (send(h->sock_fd, (void *)spacket, sizeof(spacket), 0) !=
                 sizeof(spacket)) {
-                log_error("INIT Send Failed");
+                log_error("NETWORK Send Failed");
             }
         } while (0);
         //==========================================
 
-        //==============SEND ROOTNODE===============
+        //==============SEND ROOTHOST===============
         do {
-            uint8_t spacket[sizeof(struct vln_packet_header) +
-                            sizeof(struct vln_rootnode_payload)];
-            struct vln_packet_header *sheader =
-                (struct vln_packet_header *)spacket;
-            struct vln_rootnode_payload *spayload =
-                (struct vln_rootnode_payload *)PACKET_PAYLOAD(spacket);
-            sheader->type = ROOTNODE;
+            uint8_t spacket[sizeof(struct mngr_packet_header) +
+                            sizeof(struct mngr_roothost_payload)];
+            struct mngr_packet_header *sheader =
+                (struct mngr_packet_header *)spacket;
+            struct mngr_roothost_payload *spayload =
+                (struct mngr_roothost_payload *)PACKET_PAYLOAD(spacket);
+            sheader->type = ROOTHOST;
             sheader->payload_length =
-                htonl(sizeof(struct vln_rootnode_payload));
-            spayload->vaddr = htonl(_network->address);
+                htonl(sizeof(struct mngr_roothost_payload));
+            spayload->vaddr = htonl(_root_host->vaddr);
             inet_pton(AF_INET, "192.168.33.17", &spayload->raddr);
             spayload->rport = htons(_root_host->udp_port);
 
             if (send(h->sock_fd, (void *)spacket, sizeof(spacket), 0) !=
                 sizeof(spacket)) {
-                log_error("ROOTNODE Send Failed");
+                log_error("ROOTHOST Send Failed");
             }
         } while (0);
-        log_info("rootnode Sent");
+        log_info("ROOTHOST Sent");
         //=========================================
     } else if (h->rpacket.header->type == UPDATES) {
         log_trace("received updates packet");
@@ -262,27 +324,27 @@ static void serve_router_event(int pipe_fd)
             curr_host->udp_addr = act->raddr; // Lock needed?
             curr_host->udp_port = act->rport;
 
-            uint8_t spacket_to_curr[sizeof(struct vln_packet_header) +
-                                    sizeof(struct vln_updates_payload)];
-            struct vln_packet_header *stcheader =
-                (struct vln_packet_header *)spacket_to_curr;
-            struct vln_updates_payload *stcpayload =
-                (struct vln_updates_payload *)PACKET_PAYLOAD(spacket_to_curr);
+            uint8_t spacket_to_curr[sizeof(struct mngr_packet_header) +
+                                    sizeof(struct mngr_update_payload)];
+            struct mngr_packet_header *stcheader =
+                (struct mngr_packet_header *)spacket_to_curr;
+            struct mngr_update_payload *stcpayload =
+                (struct mngr_update_payload *)PACKET_PAYLOAD(spacket_to_curr);
             stcheader->type = UPDATES;
             stcheader->payload_length =
-                htonl(sizeof(struct vln_updates_payload));
+                htonl(sizeof(struct mngr_update_payload));
             stcpayload->svaddr = htonl(_network->address); // TODO:
             stcpayload->dvaddr = htonl(curr_host->vaddr);
 
-            uint8_t spacket_to_others[sizeof(struct vln_packet_header) +
-                                      sizeof(struct vln_updates_payload)];
-            struct vln_packet_header *stoheader =
-                (struct vln_packet_header *)spacket_to_others;
-            struct vln_updates_payload *stopayload =
-                (struct vln_updates_payload *)PACKET_PAYLOAD(spacket_to_others);
+            uint8_t spacket_to_others[sizeof(struct mngr_packet_header) +
+                                      sizeof(struct mngr_update_payload)];
+            struct mngr_packet_header *stoheader =
+                (struct mngr_packet_header *)spacket_to_others;
+            struct mngr_update_payload *stopayload =
+                (struct mngr_update_payload *)PACKET_PAYLOAD(spacket_to_others);
             stoheader->type = UPDATES;
             stoheader->payload_length =
-                htonl(sizeof(struct vln_updates_payload));
+                htonl(sizeof(struct mngr_update_payload));
             stopayload->svaddr = htonl(_network->address);
             stopayload->vaddr = htonl(act->vaddr);
             stopayload->raddr = htonl(act->raddr);
@@ -297,10 +359,10 @@ static void serve_router_event(int pipe_fd)
                     stopayload->dvaddr = htonl(elem->vaddr);
 
                     if (send(elem->sock_fd, (void *)spacket_to_others,
-                             sizeof(struct vln_packet_header) +
-                                 sizeof(struct vln_updates_payload),
-                             0) != sizeof(struct vln_packet_header) +
-                                       sizeof(struct vln_updates_payload)) {
+                             sizeof(struct mngr_packet_header) +
+                                 sizeof(struct mngr_update_payload),
+                             0) != sizeof(struct mngr_packet_header) +
+                                       sizeof(struct mngr_update_payload)) {
                         log_error("failed to send PEERCONNECTED 1");
                         exit(EXIT_FAILURE);
                     }
@@ -309,10 +371,10 @@ static void serve_router_event(int pipe_fd)
                     stcpayload->raddr = htonl(elem->udp_addr);
                     stcpayload->rport = htons(elem->udp_port);
                     if (send(curr_host->sock_fd, (void *)spacket_to_curr,
-                             sizeof(struct vln_packet_header) +
-                                 sizeof(struct vln_updates_payload),
-                             0) != sizeof(struct vln_packet_header) +
-                                       sizeof(struct vln_updates_payload)) {
+                             sizeof(struct mngr_packet_header) +
+                                 sizeof(struct mngr_update_payload),
+                             0) != sizeof(struct mngr_packet_header) +
+                                       sizeof(struct mngr_update_payload)) {
                         log_error("failed to send PEERCONNECTED 2");
                         exit(EXIT_FAILURE);
                     }
@@ -333,9 +395,23 @@ static void serve_router_event(int pipe_fd)
     }
 }
 
+static void create_root_host(const uint16_t udp_port)
+{
+    if ((_root_host = malloc(sizeof(struct vln_host))) == NULL) {
+        log_error("failed memory allocation error: %s", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+
+    _root_host->vaddr = get_available_address();
+    _root_host->udp_addr = 0;
+    _root_host->udp_port = udp_port;
+    _root_host->sock_fd = -1;
+
+    HASH_ADD_INT(_hosts, vaddr, _root_host);
+}
+
 static int create_router()
 {
-    struct vln_host *root_host;
     struct sockaddr_in udp_addr;
     int router_sockfd;
     socklen_t socklen = sizeof(struct sockaddr_in);
@@ -362,17 +438,7 @@ static int create_router()
         exit(EXIT_FAILURE);
     }
 
-    if ((root_host = malloc(sizeof(struct vln_host))) == NULL) {
-        log_error("failed memory allocation error: %s", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-
-    root_host->vaddr = get_available_address();
-    root_host->udp_addr = 0;
-    root_host->udp_port = ntohs(udp_addr.sin_port);
-    root_host->sock_fd = -1;
-
-    HASH_ADD_INT(_hosts, vaddr, root_host);
+    create_root_host(ntohs(udp_addr.sin_port));
 
     int pipe_fds[2];
     pipe(pipe_fds);
@@ -381,7 +447,6 @@ static int create_router()
         taskexecutor_create((Handler)&router_listener, pipe_fds[1]);
     taskexecutor_start(rlistener);
 
-    _root_host = root_host;
     _router =
         router_create(_network->address, _network->address,
                       _network->broadcast_address, router_sockfd, rlistener);
@@ -389,16 +454,21 @@ static int create_router()
     return pipe_fds[0];
 }
 
-void start_server(struct vln_network *network, const int nic_fd,
-                  const int listening_sock)
+void start_server(struct vln_network *network, const int listening_sock,
+                  struct vln_adapter *adapter)
 {
     _network = network;
     _hosts = NULL;
+    _adapter = adapter;
     int pipe_fd = create_router();
 
+    // vln_adapter_set_network2(_adapter, _network, _root_host->vaddr);
+
+    // pthread_create(&_receiver, NULL, recv_thread, NULL);
+    // pthread_create(&_sender, NULL, send_thread, NULL);
+
     if ((_epoll_fd = epoll_create1(0)) < 0) {
-        log_error("failed to create epoll file descriptor error:%s",
-                  strerror(errno));
+        log_error("failed to create epoll object error:%s", strerror(errno));
         exit(EXIT_FAILURE);
     }
 
@@ -431,7 +501,7 @@ void start_server(struct vln_network *network, const int nic_fd,
                 case Router_Pipe:
                     serve_router_event(epoll_event->data.fd);
                     break;
-                case Host_Socket:
+                case Peer_Socket:
                     h = (struct vln_host *)epoll_event->data.ptr;
                     read_packet(h->sock_fd, &h->rpacket);
                     if (h->rpacket.state != Ready)

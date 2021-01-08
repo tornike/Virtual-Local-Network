@@ -11,7 +11,7 @@
 
 void initialize_packet(struct mngr_packet_status *p)
 {
-    p->header = (struct vln_packet_header *)p->__buffer;
+    p->header = (struct mngr_packet_header *)p->__buffer;
     p->payload = PACKET_PAYLOAD(p->__buffer);
 
     reset_packet(p);
@@ -21,7 +21,7 @@ void reset_packet(struct mngr_packet_status *p)
 {
     p->state = Waiting_Header;
     p->buffer_pos = p->__buffer;
-    p->left_bytes = sizeof(struct vln_packet_header);
+    p->left_bytes = sizeof(struct mngr_packet_header);
 }
 
 void read_packet(int sock_fd, struct mngr_packet_status *p)
