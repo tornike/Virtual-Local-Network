@@ -29,8 +29,7 @@ struct router_buffer_slot {
 struct router;
 
 struct router *router_create(uint32_t vaddr, uint32_t net_addr,
-                             uint32_t broad_addr, int sockfd,
-                             struct taskexecutor *taskexecutor);
+                             uint32_t broad_addr, int sockfd, int mngr_pipe_fd);
 
 void router_stop(struct router *);
 

@@ -99,13 +99,6 @@ static void *send_thread(void *arg)
     return NULL;
 }
 
-void router_listener(void *args, struct task_info *tinfo)
-{
-    int pipe_fd = (int)args;
-
-    write(pipe_fd, tinfo, sizeof(struct task_info));
-}
-
 static uint32_t get_available_address()
 {
     struct vln_host *h;
@@ -443,13 +436,9 @@ static int create_router()
     int pipe_fds[2];
     pipe(pipe_fds);
 
-    struct taskexecutor *rlistener =
-        taskexecutor_create((Handler)&router_listener, pipe_fds[1]);
-    taskexecutor_start(rlistener);
-
     _router =
         router_create(_network->address, _network->address,
-                      _network->broadcast_address, router_sockfd, rlistener);
+                      _network->broadcast_address, router_sockfd, pipe_fds[1]);
 
     return pipe_fds[0];
 }

@@ -84,7 +84,7 @@ struct router {
     int epoll_fd;
     struct epoll_event event, events[MAX_EVENTS];
 
-    struct taskexecutor *peer_listener;
+    int mngr_pipe_fd;
 
     struct router_connection *pending_connections;
     pthread_mutex_t pending_connections_lock;
@@ -106,8 +106,7 @@ static void update_routing_table(struct router *router, uint32_t vaddr,
                                  struct router_connection *);
 
 struct router *router_create(uint32_t vaddr, uint32_t net_addr,
-                             uint32_t broad_addr, int sockfd,
-                             struct taskexecutor *taskexecutor)
+                             uint32_t broad_addr, int sockfd, int mngr_pipe_fd)
 {
     struct router *router;
     if ((router = malloc(sizeof(struct router))) == NULL) {
@@ -153,7 +152,7 @@ struct router *router_create(uint32_t vaddr, uint32_t net_addr,
     router->pending_connections = NULL;
     pthread_mutex_init(&router->pending_connections_lock, NULL);
 
-    router->peer_listener = taskexecutor;
+    router->mngr_pipe_fd = mngr_pipe_fd;
 
     router->buffer_threads_flag = 0;
     pthread_rwlock_init(&router->buffer_threads_flag_lock, NULL);
@@ -252,7 +251,7 @@ void router_destroy(struct router *router)
 
     pthread_join(router->kasw, NULL);
 
-    taskexecutor_destroy(router->peer_listener);
+    close(router->mngr_pipe_fd);
 
     close(router->sockfd);
     close(router->epoll_fd);
@@ -395,11 +394,12 @@ void router_send_init(struct router *router, uint32_t raddr, uint32_t rport)
     sendto(router->sockfd, spacket, sizeof(spacket), 0,
            (struct sockaddr *)&saddr, sizeof(struct sockaddr_in));
 
-    struct task_info *tinfo = malloc(sizeof(struct task_info));
-    tinfo->operation = PEERCONNECTED;
-    tinfo->args = NULL;
+    /* task_info is redundant and should be removed */
+    struct task_info tinfo;
+    tinfo.operation = PEERCONNECTED;
+    tinfo.args = NULL;
 
-    taskexecutor_add_task(router->peer_listener, tinfo);
+    write(router->mngr_pipe_fd, &tinfo, sizeof(struct task_info));
 }
 
 void router_setup_pyramid(struct router *router, uint32_t vaddr)
@@ -513,10 +513,11 @@ static void *recv_worker(void *arg)
             act->raddr = ntohl(raddr.sin_addr.s_addr);
             act->rport = ntohs(raddr.sin_port);
 
-            struct task_info *task = malloc(sizeof(struct task_info));
-            task->operation = PEERCONNECTED;
-            task->args = act;
-            taskexecutor_add_task(router->peer_listener, task);
+            /* task_info is redundant and should be removed */
+            struct task_info task;
+            task.operation = PEERCONNECTED;
+            task.args = act;
+            write(router->mngr_pipe_fd, &task, sizeof(struct task_info));
 
             router_add_free_slot(router, slot);
         }
@@ -676,11 +677,12 @@ static void *keep_alive_worker(void *arg)
                 act->raddr = 0;
                 act->rport = 0;
 
-                struct task_info *task = malloc(sizeof(struct task_info));
-                task->operation = PEERDISCONNECTED;
-                task->args = act;
+                /* task_info is redundant and should be removed */
+                struct task_info task;
+                task.operation = PEERDISCONNECTED;
+                task.args = act;
 
-                taskexecutor_add_task(router->peer_listener, task);
+                write(router->mngr_pipe_fd, &task, sizeof(struct task_info));
             }
             pthread_rwlock_unlock(&kinfo->con_lock);
         }

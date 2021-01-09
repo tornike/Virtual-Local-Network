@@ -38,7 +38,6 @@ static void serve_packet(struct vln_host *h);
 static void serve_router_event(int pipe_fd);
 static void *recv_thread(void *arg);
 static void *send_thread(void *arg);
-static void router_listener(void *args, struct task_info *tinfo);
 static void handle_host_disconnect(struct vln_host *h);
 
 void start_client(const char *network_name, const uint32_t server_addr,
@@ -224,13 +223,9 @@ static void serve_packet(struct vln_host *h)
         int pipe_fds[2];
         pipe(pipe_fds);
 
-        struct taskexecutor *rlistener =
-            taskexecutor_create((Handler)&router_listener, pipe_fds[1]);
-        taskexecutor_start(rlistener);
-
         _router =
             router_create(vaddr, _network->address, _network->broadcast_address,
-                          router_sockfd, rlistener);
+                          router_sockfd, pipe_fds[1]);
 
         vln_epoll_data_t d = {.fd = pipe_fds[0]};
         epoll_register(pipe_fds[0], Router_Pipe, EPOLLIN, &d);
@@ -288,13 +283,6 @@ static void handle_host_disconnect(struct vln_host *h)
     vln_adapter_destroy(_adapter);
 
     exit(EXIT_SUCCESS);
-}
-
-static void router_listener(void *args, struct task_info *tinfo)
-{
-    int pipe_fd = (int)args;
-
-    write(pipe_fd, tinfo, sizeof(struct task_info));
 }
 
 static void cleanup_handler(void *arg)
