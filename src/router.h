@@ -1,7 +1,6 @@
 #ifndef __VLN_ROUTER__
 #define __VLN_ROUTER__
 
-#include "../lib/taskexecutor.h"
 #include "router_protocol.h"
 #include <stdlib.h>
 
@@ -10,6 +9,13 @@
 /* Listener Actions */
 #define PEERCONNECTED 1
 #define PEERDISCONNECTED 2
+
+typedef uint8_t router_event_type;
+
+struct router_event {
+    router_event_type type;
+    void *ptr;
+};
 
 struct router_action {
     uint32_t vaddr;

@@ -15,7 +15,6 @@
 #include <vln_constants.h>
 #include <vln_types.h>
 
-#include "../lib/taskexecutor.h"
 #include "../router.h"
 #include "mngr_protocol.h"
 #include "server.h"
@@ -222,7 +221,8 @@ static void handle_host_disconnect(struct vln_host *h)
                      0) != sizeof(spacket)) {
                 log_error("failed to send PEERCONNECTED 1 error: %s",
                           strerror(errno));
-                exit(EXIT_FAILURE);
+                /* Must be handled somehow but process shouldn't die */
+                // exit(EXIT_FAILURE);
             }
         }
     } while (0);
@@ -278,7 +278,6 @@ static void serve_packet(struct vln_host *h)
             sheader->payload_length =
                 htonl(sizeof(struct mngr_roothost_payload));
             spayload->vaddr = htonl(_root_host->vaddr);
-            inet_pton(AF_INET, "192.168.33.17", &spayload->raddr);
             spayload->rport = htons(_root_host->udp_port);
 
             if (send(h->sock_fd, (void *)spacket, sizeof(spacket), 0) !=
@@ -298,18 +297,19 @@ static void serve_packet(struct vln_host *h)
         //        ntohl(h->rpacket.header->payload_length));
     } else {
         log_error("received unknown packet");
-        exit(EXIT_FAILURE);
+        /* Must be handled somehow but process shouldn't die */
+        // exit(EXIT_FAILURE);
     }
 }
 
 static void serve_router_event(int pipe_fd)
 {
-    struct task_info tinfo;
-    read(pipe_fd, &tinfo, sizeof(struct task_info));
+    struct router_event rev;
+    read(pipe_fd, &rev, sizeof(struct router_event));
 
     log_info("serving router event");
-    if (tinfo.operation == PEERCONNECTED) {
-        struct router_action *act = (struct router_action *)tinfo.args;
+    if (rev.type == PEERCONNECTED) {
+        struct router_action *act = (struct router_action *)rev.ptr;
 
         struct vln_host *curr_host;
         HASH_FIND_INT(_hosts, &act->vaddr, curr_host);
@@ -357,7 +357,8 @@ static void serve_router_event(int pipe_fd)
                              0) != sizeof(struct mngr_packet_header) +
                                        sizeof(struct mngr_update_payload)) {
                         log_error("failed to send PEERCONNECTED 1");
-                        exit(EXIT_FAILURE);
+                        /* Must be handled somehow but process shouldn't die */
+                        // exit(EXIT_FAILURE);
                     }
 
                     stcpayload->vaddr = htonl(elem->vaddr);
@@ -369,14 +370,15 @@ static void serve_router_event(int pipe_fd)
                              0) != sizeof(struct mngr_packet_header) +
                                        sizeof(struct mngr_update_payload)) {
                         log_error("failed to send PEERCONNECTED 2");
-                        exit(EXIT_FAILURE);
+                        /* Must be handled somehow but process shouldn't die */
+                        // exit(EXIT_FAILURE);
                     }
                 }
             }
         }
         free(act);
-    } else if (tinfo.operation == PEERDISCONNECTED) {
-        struct router_action *act = (struct router_action *)tinfo.args;
+    } else if (rev.type == PEERDISCONNECTED) {
+        struct router_action *act = (struct router_action *)rev.ptr;
 
         struct vln_host *curr_host;
         HASH_FIND_INT(_hosts, &act->vaddr, curr_host);

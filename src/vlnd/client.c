@@ -11,7 +11,6 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "../../lib/taskexecutor.h"
 #include "../router.h"
 #include "client.h"
 #include "vln_epoll_event.h"
@@ -55,6 +54,7 @@ void start_client(const char *network_name, const uint32_t server_addr,
         log_error("failed memory allocation error: %s", strerror(errno));
         exit(EXIT_FAILURE);
     }
+    _root_host->udp_addr = server_addr;
     initialize_packet(&_root_host->rpacket);
 
     connect_to_server(server_addr, server_port);
@@ -199,7 +199,6 @@ static void serve_packet(struct vln_host *h)
             (struct mngr_roothost_payload *)h->rpacket.payload;
 
         _root_host->vaddr = ntohl(rpayload->vaddr);
-        _root_host->udp_addr = ntohl(rpayload->raddr);
         _root_host->udp_port = ntohs(rpayload->rport);
 
         router_send_init(_router, _root_host->vaddr, _root_host->udp_addr,
@@ -249,13 +248,13 @@ static void serve_packet(struct vln_host *h)
 
 static void serve_router_event(int pipe_fd)
 {
-    struct task_info tinfo;
-    read(pipe_fd, &tinfo, sizeof(struct task_info));
+    struct router_event rev;
+    read(pipe_fd, &rev, sizeof(struct router_event));
 
     log_info("serving router event");
-    if (tinfo.operation == PEERDISCONNECTED) {
+    if (rev.type == PEERDISCONNECTED) {
         log_info("recieved PEERDISCONNECTED event");
-        struct router_action *act = (struct router_action *)tinfo.args;
+        struct router_action *act = (struct router_action *)rev.ptr;
         if (act->vaddr == _root_host->vaddr) {
             // TODO: retry connection
         } else {

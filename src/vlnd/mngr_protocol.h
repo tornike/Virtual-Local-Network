@@ -36,7 +36,6 @@ struct mngr_network_payload {
 
 struct mngr_roothost_payload {
     uint32_t vaddr;
-    uint32_t raddr;
     uint16_t rport;
 } __VLN_PACKED;
 

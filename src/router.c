@@ -1,11 +1,11 @@
 #define _GNU_SOURCE
 
-#include "router.h"
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netinet/ip.h>
 #include <pthread.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/epoll.h>
@@ -14,10 +14,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include <stdio.h>
-
-#include "../lib/taskexecutor.h"
-
+#include "router.h"
 #include <uthash.h>
 #include <utlist.h>
 
@@ -397,12 +394,11 @@ void router_send_init(struct router *router, uint32_t root_vaddr,
     sendto(router->sockfd, spacket, sizeof(spacket), 0,
            (struct sockaddr *)&saddr, sizeof(struct sockaddr_in));
 
-    /* task_info is redundant and should be removed */
-    struct task_info tinfo;
-    tinfo.operation = PEERCONNECTED;
-    tinfo.args = NULL;
+    struct router_event rev;
+    rev.type = PEERCONNECTED;
+    rev.ptr = NULL;
 
-    write(router->mngr_pipe_fd, &tinfo, sizeof(struct task_info));
+    write(router->mngr_pipe_fd, &rev, sizeof(struct router_event));
 }
 
 void router_setup_pyramid(struct router *router, uint32_t vaddr)
@@ -516,11 +512,10 @@ static void *recv_worker(void *arg)
             act->raddr = ntohl(raddr.sin_addr.s_addr);
             act->rport = ntohs(raddr.sin_port);
 
-            /* task_info is redundant and should be removed */
-            struct task_info task;
-            task.operation = PEERCONNECTED;
-            task.args = act;
-            write(router->mngr_pipe_fd, &task, sizeof(struct task_info));
+            struct router_event rev;
+            rev.type = PEERCONNECTED;
+            rev.ptr = act;
+            write(router->mngr_pipe_fd, &rev, sizeof(struct router_event));
 
             router_add_free_slot(router, slot);
         }
@@ -680,12 +675,11 @@ static void *keep_alive_worker(void *arg)
                 act->raddr = 0;
                 act->rport = 0;
 
-                /* task_info is redundant and should be removed */
-                struct task_info task;
-                task.operation = PEERDISCONNECTED;
-                task.args = act;
+                struct router_event rev;
+                rev.type = PEERDISCONNECTED;
+                rev.ptr = act;
 
-                write(router->mngr_pipe_fd, &task, sizeof(struct task_info));
+                write(router->mngr_pipe_fd, &rev, sizeof(struct router_event));
             }
             pthread_rwlock_unlock(&kinfo->con_lock);
         }
