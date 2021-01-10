@@ -1,11 +1,12 @@
 
 #include <arpa/inet.h>
 #include <errno.h>
-#include <fcntl.h>
+#include <pwd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/epoll.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -17,6 +18,11 @@
 
 #define TEST_NETWORK_NAME "test_network"
 
+/* Function prorotypes */
+static void init();
+
+/* Global Variables */
+FILE *_log_file;
 struct vln_network *_network;
 
 struct vln_network *test_network_for_server()
@@ -70,13 +76,7 @@ struct vln_adapter *test_adapter(const char *name)
 
 int main(int argc, char **argv)
 {
-    // FILE *log_f;
-    // if ((log_f = fopen(VLN_LOG_FILE, "w+")) == NULL) {
-    //     log_error("failed to open logging file %s error: %s", VLN_LOG_FILE,
-    //               strerror(errno));
-    //     exit(EXIT_FAILURE);
-    // }
-    // log_trace("logging file opened successfully");
+    init();
 
     int pipe_fds[2];
     if (pipe(pipe_fds) != 0) {
@@ -113,4 +113,46 @@ int main(int argc, char **argv)
     }
 
     return 0;
+}
+
+static void init()
+{
+    if (mkdir(VLN_RUN_DIR, 0755) != 0 && errno != EEXIST) {
+        log_error("could not create directory %s error: %s", VLN_RUN_DIR,
+                  strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+
+    // change dir owner
+
+    if (mkdir(VLN_LOG_DIR, 0755) != 0 && errno != EEXIST) {
+        log_error("could not create directory %s error: %s", VLN_RUN_DIR,
+                  strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+
+    // change dir owner
+
+#ifndef DEVELOP
+    struct passwd *pwd;
+    struct group *grp;
+    if (getpwnam(VLN_USER) == NULL) {
+        log_error("failed to get info about user %s", VLN_USER);
+        exit(EXIT_FAILURE);
+    }
+    if (getgrnam(VLN_USER) == NULL) {
+        log_error("failed to get info about group %s", VLN_USER);
+        exit(EXIT_FAILURE);
+    }
+#endif
+
+    // Maybe not in this function
+    if ((_log_file = fopen(VLN_LOG_FILE, "w+")) == NULL) {
+        log_error("failed to open file %s error: %s", VLN_LOG_FILE,
+                  strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+    log_trace("%s file opened successfully", VLN_LOG_FILE);
+
+    // change file owner
 }
