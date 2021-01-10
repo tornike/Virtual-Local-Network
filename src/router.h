@@ -48,7 +48,8 @@ struct router_buffer_slot *router_receive(struct router *);
 
 void router_send(struct router *router, struct router_buffer_slot *);
 
-void router_send_init(struct router *router, uint32_t raddr, uint32_t rport);
+void router_send_init(struct router *router, uint32_t root_vaddr,
+                      uint32_t root_raddr, uint16_t root_rport);
 
 void router_setup_pyramid(struct router *, uint32_t vaddr);
 

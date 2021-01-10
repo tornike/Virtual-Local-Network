@@ -8,7 +8,7 @@
 struct vln_host {
     uint32_t vaddr;
     uint32_t udp_addr;
-    uint32_t udp_port;
+    uint16_t udp_port;
     int sock_fd;
 
     struct mngr_packet_status rpacket;

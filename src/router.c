@@ -188,7 +188,8 @@ void router_stop(struct router *router)
 void router_destroy(struct router *router)
 {
     pthread_rwlock_wrlock(&router->routing_table_lock);
-    for (int key = 0; key <= router->subnet_size; key++) {
+    /* [0] and [1] is the same object */
+    for (int key = 1; key <= router->subnet_size; key++) {
         if (router->routing_table[key] != NULL &&
             key == (router->routing_table[key]->vaddr - router->network_addr)) {
             destroy_connection(router->routing_table[key]);
@@ -365,7 +366,8 @@ void router_send(struct router *router, struct router_buffer_slot *slot)
     pthread_mutex_unlock(&router->send_buffer_lock);
 }
 
-void router_send_init(struct router *router, uint32_t raddr, uint32_t rport)
+void router_send_init(struct router *router, uint32_t root_vaddr,
+                      uint32_t root_raddr, uint16_t root_rport)
 {
     uint8_t spacket[sizeof(struct router_packet_header) +
                     sizeof(struct router_init_payload)];
@@ -378,18 +380,19 @@ void router_send_init(struct router *router, uint32_t raddr, uint32_t rport)
 
     struct sockaddr_in saddr;
     saddr.sin_family = AF_INET;
-    saddr.sin_port = ntohs(rport);
-    saddr.sin_addr.s_addr = ntohl(raddr);
+    saddr.sin_port = htons(root_rport);
+    saddr.sin_addr.s_addr = htonl(root_raddr);
 
     // Wait for approval from tcp same as in clients or just activate
     // imediatelly.
 
     struct router_connection *new_con =
-        create_connection(router->network_addr, raddr, rport);
+        create_connection(root_vaddr, root_raddr, root_rport);
     new_con->active = 1;
     set_timers(router, new_con, 10, 30);
 
     update_routing_table(router, new_con->vaddr, new_con);
+    update_routing_table(router, router->network_addr, new_con);
 
     sendto(router->sockfd, spacket, sizeof(spacket), 0,
            (struct sockaddr *)&saddr, sizeof(struct sockaddr_in));
@@ -405,7 +408,7 @@ void router_send_init(struct router *router, uint32_t raddr, uint32_t rport)
 void router_setup_pyramid(struct router *router, uint32_t vaddr)
 {
     int key = vaddr - router->network_addr;
-    int root_key = 0;
+    int root_key = 0; /* index 0 in routing table holds root host */
 
     pthread_rwlock_wrlock(&router->routing_table_lock);
     router->routing_table[key] = router->routing_table[root_key];

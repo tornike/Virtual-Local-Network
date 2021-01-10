@@ -326,7 +326,7 @@ static void serve_router_event(int pipe_fd)
             stcheader->type = UPDATES;
             stcheader->payload_length =
                 htonl(sizeof(struct mngr_update_payload));
-            stcpayload->svaddr = htonl(_network->address); // TODO:
+            stcpayload->svaddr = htonl(_root_host->vaddr);
             stcpayload->dvaddr = htonl(curr_host->vaddr);
 
             uint8_t spacket_to_others[sizeof(struct mngr_packet_header) +
@@ -338,7 +338,7 @@ static void serve_router_event(int pipe_fd)
             stoheader->type = UPDATES;
             stoheader->payload_length =
                 htonl(sizeof(struct mngr_update_payload));
-            stopayload->svaddr = htonl(_network->address);
+            stopayload->svaddr = htonl(_root_host->vaddr);
             stopayload->vaddr = htonl(act->vaddr);
             stopayload->raddr = htonl(act->raddr);
             stopayload->rport = htons(act->rport);
@@ -437,7 +437,7 @@ static int create_router()
     pipe(pipe_fds);
 
     _router =
-        router_create(_network->address, _network->address,
+        router_create(_root_host->vaddr, _network->address,
                       _network->broadcast_address, router_sockfd, pipe_fds[1]);
 
     return pipe_fds[0];
@@ -451,10 +451,10 @@ void start_server(struct vln_network *network, const int listening_sock,
     _adapter = adapter;
     int pipe_fd = create_router();
 
-    // vln_adapter_set_network2(_adapter, _network, _root_host->vaddr);
+    vln_adapter_set_network2(_adapter, _network, _root_host->vaddr);
 
-    // pthread_create(&_receiver, NULL, recv_thread, NULL);
-    // pthread_create(&_sender, NULL, send_thread, NULL);
+    pthread_create(&_receiver, NULL, recv_thread, NULL);
+    pthread_create(&_sender, NULL, send_thread, NULL);
 
     if ((_epoll_fd = epoll_create1(0)) < 0) {
         log_error("failed to create epoll object error:%s", strerror(errno));

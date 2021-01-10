@@ -202,7 +202,8 @@ static void serve_packet(struct vln_host *h)
         _root_host->udp_addr = ntohl(rpayload->raddr);
         _root_host->udp_port = ntohs(rpayload->rport);
 
-        router_send_init(_router, _root_host->udp_addr, _root_host->udp_port);
+        router_send_init(_router, _root_host->vaddr, _root_host->udp_addr,
+                         _root_host->udp_port);
     } else if (h->rpacket.header->type == NETWORK) {
         log_trace("received NETWORK packet");
         struct mngr_network_payload *rpayload =

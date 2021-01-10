@@ -104,7 +104,7 @@ int main(int argc, char **argv)
 
         if (strcmp(argv[1], "s") == 0)
             start_server(test_network_for_server(), test_socket_for_server(),
-                         NULL /* test_adapter(TEST_NETWORK_NAME) */);
+                         test_adapter(TEST_NETWORK_NAME));
         else if (strcmp(argv[1], "c") == 0)
             start_client(TEST_NETWORK_NAME, test_addr_for_client(), 33508,
                          test_adapter(TEST_NETWORK_NAME));
