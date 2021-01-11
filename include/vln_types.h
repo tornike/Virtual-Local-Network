@@ -4,8 +4,9 @@
 #include <stdint.h>
 #include <vln_constants.h>
 
-struct vln_network
-{
+#define __VLN_PACKED __attribute__((packed))
+
+struct vln_network {
     char name[NETWORK_NAME_MAX_LENGTH];
     uint32_t address;
     uint32_t mask_address;

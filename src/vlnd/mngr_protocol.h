@@ -4,8 +4,7 @@
 
 #include <stdint.h>
 #include <vln_constants.h>
-
-#define __VLN_PACKED __attribute__((packed))
+#include <vln_types.h>
 
 #define CONNECT 1
 #define NETWORK 2

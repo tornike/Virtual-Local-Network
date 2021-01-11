@@ -467,7 +467,11 @@ void start_server(struct vln_network *network, const int listening_sock,
     vln_epoll_data_t d = {.fd = pipe_fd};
     epoll_register(pipe_fd, Router_Pipe, EPOLLIN, &d);
 
-    listen(listening_sock, ACCEPT_BACKLOG);
+    if (listen(listening_sock, ACCEPT_BACKLOG) < 0) {
+        log_error("failed starting listening to the unix socket error: %s",
+                  strerror(errno));
+        exit(EXIT_FAILURE);
+    }
 
     struct epoll_event events[EPOLL_MAX_EVENTS];
     int event_count, event_i;

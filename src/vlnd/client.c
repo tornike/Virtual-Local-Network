@@ -221,7 +221,13 @@ static void serve_packet(struct vln_host *h)
         }
 
         int pipe_fds[2];
-        pipe(pipe_fds);
+        if (pipe(pipe_fds) != 0) {
+            log_error("error occured during serving NETWORK packet error: %s",
+                      strerror(errno));
+            log_debug("failed to open pipe for the router error: %s",
+                      strerror(errno));
+            exit(EXIT_FAILURE);
+        }
 
         _router =
             router_create(vaddr, _network->address, _network->broadcast_address,
