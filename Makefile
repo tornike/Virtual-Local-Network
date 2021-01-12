@@ -8,7 +8,7 @@ VPATH = src:src/vlnd:lib:build
 all: vlnd
 
 vlnd: main.o server.o client.o rxi_log.o npb_manager.o router.o adapter.o
-	$(CC) build/main.o build/server.o build/adapter.o build/client.o build/npb_manager.o build/router.o build/rxi_log.o -o build/vlnd -lpthread
+	$(CC) build/main.o build/server.o build/adapter.o build/client.o build/npb_manager.o build/router.o build/rxi_log.o -o build/vlnd -lpthread -lconfig -lm
 
 main.o: main.c
 	$(CC) $(CFLAGS_DEBUG) -I $(INCLUDE_PATH) src/vlnd/main.c -o build/main.o

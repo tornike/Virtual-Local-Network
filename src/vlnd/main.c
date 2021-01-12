@@ -1,6 +1,8 @@
 
 #include <arpa/inet.h>
 #include <errno.h>
+#include <libconfig.h>
+#include <math.h>
 #include <pwd.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,63 +22,33 @@
 
 /* Function prorotypes */
 static void init();
+static void read_config();
+static struct vln_network *
+network_for_server(const char *name, const char *address, int network_bits);
+static int socket_for_server(const char *bind_address, const char *bind_port);
+static void start_server_process(struct vln_network *network, int listen_sock);
+static void start_client_process(char *network_name, uint32_t raddr,
+                                 uint16_t rport);
 
 /* Global Variables */
 FILE *_log_file;
-struct vln_network *_network;
-
-struct vln_network *test_network_for_server()
-{
-    struct vln_network *network = malloc(sizeof(struct vln_network));
-
-    inet_pton(AF_INET, "172.6.2.0", &network->address);
-    network->address = ntohl(network->address);
-
-    inet_pton(AF_INET, "172.6.2.255", &network->broadcast_address);
-    network->broadcast_address = ntohl(network->broadcast_address);
-
-    inet_pton(AF_INET, "255.255.255.0", &network->mask_address);
-    network->mask_address = ntohl(network->mask_address);
-
-    strcpy(network->name, TEST_NETWORK_NAME);
-    _network = network;
-    return network;
-}
-
-uint32_t test_addr_for_client()
-{
-    uint32_t addr;
-    inet_pton(AF_INET, "192.168.33.17", &addr);
-    addr = ntohl(addr);
-    return addr;
-}
-
-int test_socket_for_server()
-{
-    int sfd;
-    struct sockaddr_in s_addr;
-    sfd = socket(AF_INET, SOCK_STREAM, 0);
-    s_addr.sin_family = AF_INET;
-    s_addr.sin_port = htons(33508);
-    s_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-
-    if (bind(sfd, (struct sockaddr *)&s_addr, sizeof(struct sockaddr_in)) !=
-        0) {
-        log_error("bind failed");
-        exit(EXIT_FAILURE);
-    }
-    return sfd;
-}
-
-struct vln_adapter *test_adapter(const char *name)
-{
-    struct vln_adapter *adapter = vln_adapter_create(name);
-    return adapter;
-}
 
 int main(int argc, char **argv)
 {
     init();
+
+#ifdef DEVELOP
+    if (argc == 2 && strcmp(argv[1], "s") == 0)
+        read_config(VLN_SERVER_CONFIG_FILE);
+    else if (argc == 2 && strcmp(argv[1], "c") == 0)
+        read_config(VLN_CLIENT_CONFIG_FILE);
+    else {
+        log_error("incorrect arguments");
+        exit(EXIT_FAILURE);
+    }
+#else
+    read_config(VLN_CONFIG_FILE);
+#endif
 
     int pipe_fds[2];
     if (pipe(pipe_fds) != 0) {
@@ -87,42 +59,56 @@ int main(int argc, char **argv)
         exit(EXIT_FAILURE);
     }
     log_trace("opened pipe for child");
+    log_trace("waiting on pipe");
+    char buffer[64];
+    read(pipe_fds[0], buffer, 64); // temporary waiting point
+}
 
-    char *buffer[64];
+static void start_server_process(struct vln_network *network, int listen_sock)
+{
     pid_t child_pid;
     if ((child_pid = fork()) < 0) {
-        log_error(
-            "error occured during creation of the child process error: %s",
-            strerror(errno));
+        log_error("error occured during creation of the child process");
         log_debug("fork failed error: %s", strerror(errno));
         exit(EXIT_FAILURE);
     } else if (child_pid > 0) {
         log_trace("child with %lu created", child_pid);
-        read(pipe_fds[0], buffer, 64); // temporary waiting point
+
+        return;
     } else {
         log_trace("logging from child process");
 
-        if (strcmp(argv[1], "s") == 0)
-            start_server(test_network_for_server(), test_socket_for_server(),
-                         test_adapter(TEST_NETWORK_NAME));
-        else if (strcmp(argv[1], "c") == 0)
-            start_client(TEST_NETWORK_NAME, test_addr_for_client(), 33508,
-                         test_adapter(TEST_NETWORK_NAME));
-        else
-            exit(EXIT_FAILURE);
+        start_server(network, listen_sock, vln_adapter_create(network->name));
     }
+}
 
-    return 0;
+static void start_client_process(char *network_name, uint32_t raddr,
+                                 uint16_t rport)
+{
+    pid_t child_pid;
+    if ((child_pid = fork()) < 0) {
+        log_error("error occured during creation of the child process");
+        log_debug("fork failed error: %s", strerror(errno));
+        exit(EXIT_FAILURE);
+    } else if (child_pid > 0) {
+        log_trace("child with %lu created", child_pid);
+
+        return;
+    } else {
+        log_trace("logging from child process");
+
+        start_client(network_name, raddr, rport,
+                     vln_adapter_create(network_name));
+    }
 }
 
 static void init()
 {
-    if (mkdir(VLN_RUN_DIR, 0755) != 0 && errno != EEXIST) {
-        log_error("could not create directory %s error: %s", VLN_RUN_DIR,
-                  strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-
+    // if (mkdir(VLN_RUN_DIR, 0755) != 0 && errno != EEXIST) {
+    //     log_error("could not create directory %s error: %s", VLN_RUN_DIR,
+    //               strerror(errno));
+    //     exit(EXIT_FAILURE);
+    // }
     // change dir owner
 
     if (mkdir(VLN_LOG_DIR, 0755) != 0 && errno != EEXIST) {
@@ -155,4 +141,122 @@ static void init()
     log_trace("%s file opened successfully", VLN_LOG_FILE);
 
     // change file owner
+}
+
+static void read_config(const char *config_file)
+{
+    config_t conf;
+    config_setting_t *servers_setting, *clients_setting;
+
+    config_init(&conf);
+
+    if (!config_read_file(&conf, config_file)) {
+        log_error("error while reading config file: %s:%d - %s",
+                  config_error_file(&conf), config_error_line(&conf),
+                  config_error_text(&conf));
+        config_destroy(&conf);
+        exit(EXIT_FAILURE);
+    }
+
+    servers_setting = config_lookup(&conf, "servers");
+    if (servers_setting != NULL) {
+        int count = config_setting_length(servers_setting);
+        config_setting_t *server;
+        const char *network_name, *network_subnet, *bind_address, *bind_port;
+        for (int i = 0; i < count; ++i) {
+            server = config_setting_get_elem(servers_setting, i);
+
+            /* Proceed if all of the expected fields are present.
+             */
+            if (!(config_setting_lookup_string(server, "network_name",
+                                               &network_name) &&
+                  config_setting_lookup_string(server, "network_subnet",
+                                               &network_subnet) &&
+                  config_setting_lookup_string(server, "bind_address",
+                                               &bind_address) &&
+                  config_setting_lookup_string(server, "bind_port",
+                                               &bind_port))) {
+                log_error(
+                    "error while reading config file: some fields are missing");
+            }
+
+            log_info("running server: %s %s %s %s", network_name,
+                     network_subnet, bind_address, bind_port);
+
+            char delim[] = "/";
+            char *subnet_addr_str = strtok((char *)network_subnet, delim);
+            char *network_bits_str = strtok(NULL, delim);
+
+            struct vln_network *network = network_for_server(
+                network_name, subnet_addr_str, atoi(network_bits_str));
+
+            start_server_process(network,
+                                 socket_for_server(bind_address, bind_port));
+        }
+    }
+
+    clients_setting = config_lookup(&conf, "clients");
+    if (clients_setting != NULL) {
+        int count = config_setting_length(clients_setting);
+        config_setting_t *client;
+        const char *network_name, *address, *port;
+        for (int i = 0; i < count; ++i) {
+            client = config_setting_get_elem(clients_setting, i);
+
+            /* Proceed if all of the expected fields are present.
+             */
+            if (!(config_setting_lookup_string(client, "network_name",
+                                               &network_name) &&
+                  config_setting_lookup_string(client, "address", &address) &&
+                  config_setting_lookup_string(client, "port", &port))) {
+                log_error("error while reading config file: incorrect fields");
+            }
+
+            log_info("running client: %s %s %s", network_name, address, port);
+
+            uint32_t raddr;
+            inet_pton(AF_INET, address, &raddr);
+            uint16_t rport = atoi(port);
+            raddr = ntohl(raddr);
+            start_client_process((char *)network_name, raddr, rport);
+        }
+    }
+}
+
+struct vln_network *network_for_server(const char *name, const char *address,
+                                       int network_bits)
+{
+    struct vln_network *network = malloc(sizeof(struct vln_network));
+
+    inet_pton(AF_INET, address, &network->address);
+    network->address = ntohl(network->address);
+
+    network->broadcast_address =
+        network->address + (uint32_t)pow(2, 32 - network_bits) - 1;
+
+    network->mask_address = ((uint32_t)pow(2, network_bits) - 1)
+                            << (32 - network_bits);
+
+    strcpy(network->name, name);
+
+    return network;
+}
+
+static int socket_for_server(const char *bind_address, const char *bind_port)
+{
+    uint16_t port = atoi(bind_port);
+
+    int sfd;
+    struct sockaddr_in s_addr;
+    sfd = socket(AF_INET, SOCK_STREAM, 0);
+    s_addr.sin_family = AF_INET;
+    s_addr.sin_port = htons(port);
+    inet_pton(AF_INET, bind_address, &s_addr.sin_addr.s_addr);
+
+    if (bind(sfd, (struct sockaddr *)&s_addr, sizeof(struct sockaddr_in)) !=
+        0) {
+        log_error("bind failed");
+        exit(EXIT_FAILURE);
+    }
+    return sfd;
 }
