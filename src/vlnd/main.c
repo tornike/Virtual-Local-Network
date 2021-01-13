@@ -1,13 +1,17 @@
 
 #include <arpa/inet.h>
 #include <errno.h>
+#include <grp.h>
 #include <libconfig.h>
+#include <linux/securebits.h>
 #include <math.h>
 #include <pwd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/capability.h>
 #include <sys/epoll.h>
+#include <sys/prctl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -17,8 +21,6 @@
 #include <rxi_log.h>
 #include <vln_adapter.h>
 #include <vln_default_config.h>
-
-#define TEST_NETWORK_NAME "test_network"
 
 /* Function prorotypes */
 static void init();
@@ -102,6 +104,7 @@ static void start_client_process(char *network_name, uint32_t raddr,
     }
 }
 
+/* Initializes environment as root and changes process user */
 static void init()
 {
     // if (mkdir(VLN_RUN_DIR, 0755) != 0 && errno != EEXIST) {
@@ -119,17 +122,81 @@ static void init()
 
     // change dir owner
 
-#ifndef DEVELOP
+#ifndef RUN_AS_ROOT
     struct passwd *pwd;
     struct group *grp;
-    if (getpwnam(VLN_USER) == NULL) {
+    if ((pwd = getpwnam(VLN_USER)) == NULL) {
         log_error("failed to get info about user %s", VLN_USER);
         exit(EXIT_FAILURE);
     }
-    if (getgrnam(VLN_USER) == NULL) {
+    if ((grp = getgrnam(VLN_USER)) == NULL) {
         log_error("failed to get info about group %s", VLN_USER);
         exit(EXIT_FAILURE);
     }
+
+    chown(VLN_LOG_DIR, pwd->pw_uid, grp->gr_gid);
+
+    /* Keep permited capabilities */
+    if (prctl(PR_SET_SECUREBITS, SECBIT_KEEP_CAPS) < 0) {
+        log_error("failed to set SECBIT_KEEP_CAPS flag %s", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+
+    if (setgid(grp->gr_gid) < 0) {
+        log_error("failed to change process group to %s - %s", VLN_USER,
+                  strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+    if (setuid(pwd->pw_uid) < 0) {
+        log_error("failed to change process user to %s - %s", VLN_USER,
+                  strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+
+    /* Clear all capabilities but CAP_NET_ADMIN */
+    cap_t caps = cap_get_proc();
+    cap_value_t cap_list[1];
+
+    cap_list[0] = CAP_SETPCAP;
+    if (cap_set_flag(caps, CAP_EFFECTIVE, 1, cap_list, CAP_SET) < 0) {
+        log_error("failed to set cap flags - %s", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+    if (cap_set_proc(caps) < 0) {
+        log_error("failed to set process capabilitites - %s", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+
+    /* Unset keep permited capabilities */
+    if (prctl(PR_SET_SECUREBITS, 0) < 0) {
+        log_error("failed to unset SECBIT_KEEP_CAPS flag %s", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+
+    cap_clear(caps);
+    cap_list[0] = CAP_NET_ADMIN;
+    if (cap_set_flag(caps, CAP_PERMITTED, 1, cap_list, CAP_SET) < 0) {
+        log_error("failed to set cap flags - %s", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+    if (cap_set_flag(caps, CAP_EFFECTIVE, 1, cap_list, CAP_SET) < 0) {
+        log_error("failed to set cap flags - %s", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+    if (cap_set_proc(caps) < 0) {
+        log_error("failed to set process capabilitites - %s", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+
+    if (cap_free(caps) < 0) {
+        log_error("freeing caps failed - %s", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+
+    cap_flag_value_t fv;
+    caps = cap_get_proc();
+    cap_get_flag(caps, CAP_NET_ADMIN, CAP_EFFECTIVE, &fv);
+    log_info("CAP_NET_ADMIN effective status %d", fv);
 #endif
 
     // Maybe not in this function
@@ -255,7 +322,7 @@ static int socket_for_server(const char *bind_address, const char *bind_port)
 
     if (bind(sfd, (struct sockaddr *)&s_addr, sizeof(struct sockaddr_in)) !=
         0) {
-        log_error("bind failed");
+        log_error("bind failed - %s", strerror(errno));
         exit(EXIT_FAILURE);
     }
     return sfd;
