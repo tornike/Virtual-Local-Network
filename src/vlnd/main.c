@@ -39,13 +39,20 @@ int main(int argc, char **argv)
 {
     init();
 
+    if ((_log_file = fopen(VLN_LOG_FILE, "w+")) == NULL) {
+        log_error("failed to open file %s error: %s", VLN_LOG_FILE,
+                  strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+    log_trace("%s file opened successfully", VLN_LOG_FILE);
+
 #ifdef DEVELOP
     if (argc == 2 && strcmp(argv[1], "s") == 0)
         read_config(VLN_SERVER_CONFIG_FILE);
     else if (argc == 2 && strcmp(argv[1], "c") == 0)
         read_config(VLN_CLIENT_CONFIG_FILE);
     else {
-        log_error("incorrect arguments");
+        log_error("incorrect arguments: input c for client and s for server");
         exit(EXIT_FAILURE);
     }
 #else
@@ -68,6 +75,12 @@ int main(int argc, char **argv)
 
 static void start_server_process(struct vln_network *network, int listen_sock)
 {
+    struct vln_adapter *adapter;
+    if ((adapter = vln_adapter_create(network->name)) == NULL) {
+        log_error("creating network adapter failed");
+        exit(EXIT_FAILURE);
+    }
+
     pid_t child_pid;
     if ((child_pid = fork()) < 0) {
         log_error("error occured during creation of the child process");
@@ -80,13 +93,19 @@ static void start_server_process(struct vln_network *network, int listen_sock)
     } else {
         log_trace("logging from child process");
 
-        start_server(network, listen_sock, vln_adapter_create(network->name));
+        start_server(network, listen_sock, adapter);
     }
 }
 
 static void start_client_process(char *network_name, uint32_t raddr,
                                  uint16_t rport)
 {
+    struct vln_adapter *adapter;
+    if ((adapter = vln_adapter_create(network_name)) == NULL) {
+        log_error("creating network adapter failed");
+        exit(EXIT_FAILURE);
+    }
+
     pid_t child_pid;
     if ((child_pid = fork()) < 0) {
         log_error("error occured during creation of the child process");
@@ -99,8 +118,7 @@ static void start_client_process(char *network_name, uint32_t raddr,
     } else {
         log_trace("logging from child process");
 
-        start_client(network_name, raddr, rport,
-                     vln_adapter_create(network_name));
+        start_client(network_name, raddr, rport, adapter);
     }
 }
 
@@ -122,15 +140,24 @@ static void init()
 
     // change dir owner
 
-#ifndef RUN_AS_ROOT
+    char *user_to_change_to;
+#ifdef DEVELOP
+    user_to_change_to = getenv("SUDO_USER");
+    if (user_to_change_to == NULL)
+        return;
+    printf("%s\n", user_to_change_to);
+#else
+    user_to_change_to = VLN_USER;
+#endif
+
     struct passwd *pwd;
     struct group *grp;
-    if ((pwd = getpwnam(VLN_USER)) == NULL) {
-        log_error("failed to get info about user %s", VLN_USER);
+    if ((pwd = getpwnam(user_to_change_to)) == NULL) {
+        log_error("failed to get info about user %s", user_to_change_to);
         exit(EXIT_FAILURE);
     }
-    if ((grp = getgrnam(VLN_USER)) == NULL) {
-        log_error("failed to get info about group %s", VLN_USER);
+    if ((grp = getgrnam(user_to_change_to)) == NULL) {
+        log_error("failed to get info about group %s", user_to_change_to);
         exit(EXIT_FAILURE);
     }
 
@@ -197,17 +224,6 @@ static void init()
     caps = cap_get_proc();
     cap_get_flag(caps, CAP_NET_ADMIN, CAP_EFFECTIVE, &fv);
     log_info("CAP_NET_ADMIN effective status %d", fv);
-#endif
-
-    // Maybe not in this function
-    if ((_log_file = fopen(VLN_LOG_FILE, "w+")) == NULL) {
-        log_error("failed to open file %s error: %s", VLN_LOG_FILE,
-                  strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    log_trace("%s file opened successfully", VLN_LOG_FILE);
-
-    // change file owner
 }
 
 static void read_config(const char *config_file)

@@ -5,7 +5,7 @@ VPATH = src:src/vlnd:lib:build
 
 CC = gcc
 CFLAGS_RELEASE = -Wall -c
-CFLAGS_DEBUG = -Wall -c -g -D DEVELOP # -D RUN_AS_ROOT
+CFLAGS_DEBUG = -Wall -c -g -D DEVELOP
 
 all: vlnd
 
