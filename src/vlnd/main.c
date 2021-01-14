@@ -14,30 +14,58 @@
 #include <sys/prctl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include "client.h"
 #include "server.h"
 #include <rxi_log.h>
+#include <uthash.h>
 #include <vln_adapter.h>
 #include <vln_default_config.h>
+
+struct vlnd_server {
+    pid_t child_pid;
+
+    char network_name[NETWORK_NAME_MAX_LENGTH];
+    uint32_t network_addr;
+    uint32_t mask_addr;
+    uint32_t broadcast_addr;
+    char *bind_addr;
+    char *bind_port;
+
+    UT_hash_handle hh;
+};
+
+struct vlnd_client {
+    pid_t child_pid;
+
+    char network_name[NETWORK_NAME_MAX_LENGTH];
+    uint32_t raddr;
+    uint16_t rport;
+
+    UT_hash_handle hh;
+};
 
 /* Function prorotypes */
 static void init();
 static void read_config();
-static struct vln_network *
-network_for_server(const char *name, const char *address, int network_bits);
 static int socket_for_server(const char *bind_address, const char *bind_port);
-static void start_server_process(struct vln_network *network, int listen_sock);
-static void start_client_process(char *network_name, uint32_t raddr,
-                                 uint16_t rport);
+static void start_server_process(struct vlnd_server *server);
+static void start_client_process(struct vlnd_client *client);
+static void restart_dead_network(pid_t pid);
 
 /* Global Variables */
 FILE *_log_file;
+static struct vlnd_client *_vlnd_clients;
+static struct vlnd_server *_vlnd_servers;
 
 int main(int argc, char **argv)
 {
     init();
+
+    _vlnd_clients = NULL;
+    _vlnd_servers = NULL;
 
     if ((_log_file = fopen(VLN_LOG_FILE, "w+")) == NULL) {
         log_error("failed to open file %s error: %s", VLN_LOG_FILE,
@@ -59,24 +87,44 @@ int main(int argc, char **argv)
     read_config(VLN_CONFIG_FILE);
 #endif
 
-    int pipe_fds[2];
-    if (pipe(pipe_fds) != 0) {
-        log_error(
-            "error occured during creation of the child process error: %s",
-            strerror(errno));
-        log_debug("failed to open pipe for child error: %s", strerror(errno));
-        exit(EXIT_FAILURE);
+    int wstatus;
+    pid_t pid;
+    while (true) {
+        pid = waitpid(-1, &wstatus, 0);
+        log_debug("child with pid %d changed status %d", pid, wstatus);
+        restart_dead_network(pid);
     }
-    log_trace("opened pipe for child");
-    log_trace("waiting on pipe");
-    char buffer[64];
-    read(pipe_fds[0], buffer, 64); // temporary waiting point
 }
 
-static void start_server_process(struct vln_network *network, int listen_sock)
+static void restart_dead_network(pid_t pid)
+{
+    struct vlnd_client *client;
+    HASH_FIND_INT(_vlnd_clients, &pid, client);
+    if (client != NULL) {
+        log_debug("restarting client %s", client->network_name);
+        HASH_DEL(_vlnd_clients, client);
+        start_client_process(client);
+        return;
+    }
+
+    struct vlnd_server *server;
+    HASH_FIND_INT(_vlnd_servers, &pid, server);
+    if (server != NULL) {
+        log_debug("restarting server %s", server->network_name);
+        HASH_DEL(_vlnd_servers, server);
+        start_server_process(server);
+        return;
+    }
+
+    log_error("died unknown child process");
+    log_debug("died network child process id couldn't be found");
+    exit(EXIT_FAILURE);
+}
+
+static void start_server_process(struct vlnd_server *server)
 {
     struct vln_adapter *adapter;
-    if ((adapter = vln_adapter_create(network->name)) == NULL) {
+    if ((adapter = vln_adapter_create(server->network_name)) == NULL) {
         log_error("creating network adapter failed");
         exit(EXIT_FAILURE);
     }
@@ -88,20 +136,28 @@ static void start_server_process(struct vln_network *network, int listen_sock)
         exit(EXIT_FAILURE);
     } else if (child_pid > 0) {
         log_trace("child with %lu created", child_pid);
+        vln_adapter_destroy(adapter);
 
+        server->child_pid = child_pid;
+        HASH_ADD_INT(_vlnd_servers, child_pid, server);
         return;
     } else {
         log_trace("logging from child process");
-
-        start_server(network, listen_sock, adapter);
+        int listen_sock =
+            socket_for_server(server->bind_addr, server->bind_port);
+        struct vln_network network = {.address = server->network_addr,
+                                      .mask_address = server->mask_addr,
+                                      .broadcast_address =
+                                          server->broadcast_addr};
+        strcpy(network.name, server->network_name);
+        start_server(&network, listen_sock, adapter);
     }
 }
 
-static void start_client_process(char *network_name, uint32_t raddr,
-                                 uint16_t rport)
+static void start_client_process(struct vlnd_client *client)
 {
     struct vln_adapter *adapter;
-    if ((adapter = vln_adapter_create(network_name)) == NULL) {
+    if ((adapter = vln_adapter_create(client->network_name)) == NULL) {
         log_error("creating network adapter failed");
         exit(EXIT_FAILURE);
     }
@@ -113,12 +169,16 @@ static void start_client_process(char *network_name, uint32_t raddr,
         exit(EXIT_FAILURE);
     } else if (child_pid > 0) {
         log_trace("child with %lu created", child_pid);
+        vln_adapter_destroy(adapter);
 
+        client->child_pid = child_pid;
+        HASH_ADD_INT(_vlnd_clients, child_pid, client);
         return;
     } else {
         log_trace("logging from child process");
 
-        start_client(network_name, raddr, rport, adapter);
+        start_client(client->network_name, client->raddr, client->rport,
+                     adapter);
     }
 }
 
@@ -267,14 +327,24 @@ static void read_config(const char *config_file)
                      network_subnet, bind_address, bind_port);
 
             char delim[] = "/";
-            char *subnet_addr_str = strtok((char *)network_subnet, delim);
+            char *network_addr_str = strtok((char *)network_subnet, delim);
             char *network_bits_str = strtok(NULL, delim);
 
-            struct vln_network *network = network_for_server(
-                network_name, subnet_addr_str, atoi(network_bits_str));
+            int network_bits = atoi(network_bits_str);
 
-            start_server_process(network,
-                                 socket_for_server(bind_address, bind_port));
+            struct vlnd_server *s = malloc(sizeof(struct vlnd_server));
+            strcpy(s->network_name, network_name);
+            inet_pton(AF_INET, network_addr_str, &s->network_addr);
+            s->network_addr = ntohl(s->network_addr);
+            s->broadcast_addr =
+                s->network_addr + (uint32_t)pow(2, 32 - network_bits) - 1;
+
+            s->mask_addr = ((uint32_t)pow(2, network_bits) - 1)
+                           << (32 - network_bits);
+            s->bind_addr = (char *)bind_address;
+            s->bind_port = (char *)bind_port;
+
+            start_server_process(s);
         }
     }
 
@@ -301,28 +371,15 @@ static void read_config(const char *config_file)
             inet_pton(AF_INET, address, &raddr);
             uint16_t rport = atoi(port);
             raddr = ntohl(raddr);
-            start_client_process((char *)network_name, raddr, rport);
+
+            struct vlnd_client *c = malloc(sizeof(struct vlnd_client));
+            strcpy(c->network_name, network_name);
+            c->raddr = raddr;
+            c->rport = rport;
+
+            start_client_process(c);
         }
     }
-}
-
-struct vln_network *network_for_server(const char *name, const char *address,
-                                       int network_bits)
-{
-    struct vln_network *network = malloc(sizeof(struct vln_network));
-
-    inet_pton(AF_INET, address, &network->address);
-    network->address = ntohl(network->address);
-
-    network->broadcast_address =
-        network->address + (uint32_t)pow(2, 32 - network_bits) - 1;
-
-    network->mask_address = ((uint32_t)pow(2, network_bits) - 1)
-                            << (32 - network_bits);
-
-    strcpy(network->name, name);
-
-    return network;
 }
 
 static int socket_for_server(const char *bind_address, const char *bind_port)
@@ -335,6 +392,12 @@ static int socket_for_server(const char *bind_address, const char *bind_port)
     s_addr.sin_family = AF_INET;
     s_addr.sin_port = htons(port);
     inet_pton(AF_INET, bind_address, &s_addr.sin_addr.s_addr);
+
+    int optval = 1;
+    if (setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(int)) < 0) {
+        log_error("setting socket options failed - %s", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
 
     if (bind(sfd, (struct sockaddr *)&s_addr, sizeof(struct sockaddr_in)) !=
         0) {

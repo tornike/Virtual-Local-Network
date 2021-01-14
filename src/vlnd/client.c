@@ -145,10 +145,13 @@ static void connect_to_server(const uint32_t server_addr,
     server_sockaddr.sin_addr.s_addr = htonl(server_addr);
     server_sockaddr.sin_port = htons(server_port);
 
-    if (connect(_root_host->sock_fd, (struct sockaddr *)&server_sockaddr,
-                sizeof(struct sockaddr)) < 0) {
-        log_error("failed connecting to server error: %s", strerror(errno));
-        exit(EXIT_FAILURE);
+    unsigned int sleep_secs = 10;
+    while (connect(_root_host->sock_fd, (struct sockaddr *)&server_sockaddr,
+                   sizeof(struct sockaddr)) < 0) {
+        log_warn("failed connecting to server, retrying in %u seconds",
+                 sleep_secs);
+        sleep(sleep_secs);
+        sleep_secs = sleep_secs + 10 > 30 ? 30 : sleep_secs + 10;
     }
     log_trace("connected to the server");
 }
