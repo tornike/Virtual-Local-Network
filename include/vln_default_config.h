@@ -1,7 +1,7 @@
 #ifndef __VLN_DEFAULT_CONFIG__
 #define __VLN_DEFAULT_CONFIG__
 
-#define VLN_USER "vlnd"
+#define VLN_USER "vln"
 
 #define __VLN_LOG_FILENAME "vln.log"
 #define __VLN_CONFIG_FILENAME "vln.conf"

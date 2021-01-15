@@ -42,3 +42,7 @@ rxi_log.o: rxi_log.c
 .PHONY: clean
 clean:
 	rm -rf build/*
+
+.PHONY: install
+install: release
+	$(shell sudo ./install.sh)

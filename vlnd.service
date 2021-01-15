@@ -1,0 +1,10 @@
+
+[Unit]
+Description=Virtual Local Network
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/vlnd
+
+[Install]
+WantedBy=multi-user.target
