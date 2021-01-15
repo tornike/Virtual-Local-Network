@@ -144,6 +144,12 @@ static void start_server_process(struct vlnd_server *server)
         HASH_ADD_INT(_vlnd_servers, child_pid, server);
         return;
     } else {
+        /* Highly unlikely race condition, but can be fixed */
+        if (prctl(PR_SET_PDEATHSIG, SIGTERM) < 0) {
+            log_error("error occured during child process creation");
+            log_debug("failed to set PR_SET_PDEATHSIG flag for childprocess");
+            exit(EXIT_FAILURE);
+        }
         log_trace("logging from child process");
         int listen_sock =
             socket_for_server(server->bind_addr, server->bind_port);
@@ -177,6 +183,12 @@ static void start_client_process(struct vlnd_client *client)
         HASH_ADD_INT(_vlnd_clients, child_pid, client);
         return;
     } else {
+        /* Highly unlikely race condition, but can be fixed */
+        if (prctl(PR_SET_PDEATHSIG, SIGTERM) < 0) {
+            log_error("error occured during child process creation");
+            log_debug("failed to set PR_SET_PDEATHSIG flag for childprocess");
+            exit(EXIT_FAILURE);
+        }
         log_trace("logging from child process");
 
         start_client(client->network_name, client->raddr, client->rport,
@@ -207,7 +219,7 @@ static void init()
     user_to_change_to = getenv("SUDO_USER");
     if (user_to_change_to == NULL)
         return;
-    printf("%s\n", user_to_change_to);
+    log_debug("changing process user to %s", user_to_change_to);
 #else
     user_to_change_to = VLN_USER;
 #endif
