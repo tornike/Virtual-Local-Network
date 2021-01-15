@@ -67,13 +67,14 @@ int main(int argc, char **argv)
     _vlnd_clients = NULL;
     _vlnd_servers = NULL;
 
-    if ((_log_file = fopen(VLN_LOG_FILE, "w+")) == NULL) {
+    if ((_log_file = fopen(VLN_LOG_FILE, "a")) == NULL) {
         log_error("failed to open file %s error: %s", VLN_LOG_FILE,
                   strerror(errno));
         exit(EXIT_FAILURE);
     }
-    log_trace("%s file opened successfully", VLN_LOG_FILE);
+    // log_trace("%s file opened successfully", VLN_LOG_FILE);
 
+    log_add_fp(_log_file, LOG_TRACE);
 #ifdef DEVELOP
     if (argc == 2 && strcmp(argv[1], "s") == 0)
         read_config(VLN_SERVER_CONFIG_FILE);
@@ -84,6 +85,7 @@ int main(int argc, char **argv)
         exit(EXIT_FAILURE);
     }
 #else
+    log_set_quiet(true);
     read_config(VLN_CONFIG_FILE);
 #endif
 
