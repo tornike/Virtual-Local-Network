@@ -45,4 +45,8 @@ clean:
 
 .PHONY: install
 install: release
-	$(shell sudo ./install.sh)
+	sudo ./install.sh
+
+.PHONY: uninstall
+uninstall:
+	sudo ./uninstall.sh
