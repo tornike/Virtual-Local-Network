@@ -1,49 +1,75 @@
-# Virtual-Local-Network
+# Virtual Local Network #
 
-VLN is a network virtualization software, with it you can create and connect to private networks. Devices in same network can communicate
-with each other as they were directly connected, like LAN, despite NAT or blocked LANs.
+VLN is a network virtualization software for linux, which allows you to create virtual
+local networks over existing one. Using vln, hosts can communicate with each other as 
+they were directly connected in LAN.
 
+VLN does this by tunneling traffic through publicly accessible rendezvous server, but
+always tries to connect network hosts directly, using hole punching technique.
 
-Behind the scenes, VLN is trying to connect devices directly, peer to peer, using udp punching. if p2p connection fails, traffic is 
-redirected with server.
+## Installation ##
 
+VLN requires `libconfig-dev`, `libcap-dev` packages to be installed.
+For installation just run `make install` from source directory.
 
-In order to operate, VLN needs server which will be accessible in public network. At this moment one server is up and ready for 
-connection, it's address is written in vln.config. Of course it can be changed, server can be anyone if it's satisfies upper mentioned 
-condition.
+## Usage ##
 
+#### Starting vlnd:
+```
+systemctl start vlnd
+```
+#### Stopping vlnd:
+```
+systemctl stop vlnd
+```
+#### Restarting vlnd:
+```
+systemctl restart vlnd
+```
 
-Information about networks is stored on server, so different servers will have different networks.
+### Config file:
 
+VLN can be configured with configuration file: `vln.conf` located in `/etc/vln/`.
+File contains 2 main directives: `servers` and `clients`.
 
-At this moment vln just works on Linux operating system.
+Base on the blocks in `servers` directive, `vlnd` creates networks and serves as, upper
+mentioned, rendezvous server, example:
+```
+servers = 
+(
+	{
+		network_name = "network1"
+		network_subnet = "172.16.2.0/28"
+		bind_address = "0.0.0.0"
+		bind_port = "33508"
+	},
+  {
+		network_name = "network2"
+		network_subnet = "192.168.10.0/24"
+		bind_address = "0.0.0.0"
+		bind_port = "33509"
+	}
+)
+```
 
+On the other hand, `clients` directive combines configurations about networks `vlnd` should
+connect to, for example:
+```
+clients = 
+(
+	{
+		network_name = "network1"
+		address = "192.168.33.17" # here should be publicly accesible address of the server
+		port = "33508"
+	},
+  {
+		network_name = "network2"
+		address = "192.168.33.17"
+		port = "33509"
+	}
+)
+```
 
-Using VLN is very simple, you just need to download install folder and run installer.sh as root. By default vln is installed in
-/opt/vln directory.
-
-
-After installation you must communicate vlnclient with vlnstarter.
-
-you can either create new network, connect and disconnect from already connected one:
-
-  vlnstarter disconnect
-  
-  vlnstarter connect {network name} {network password}
-  
-  vlnstarter create {network name} {network password} {subnet}
-  
-  parameters in {} must be changed to desired names.
-  
-  Example of Subnet: 172.6.2.0/28.
-  
-
-You also can build it by yourself but you will need this packages:
-
-  libjson-c-dev
-  
-  sqlite3
-  
-  libsqlite3-dev
-  
+Configuration file is read only ones by vlnd, at startup, so in order for configuration changes
+to take effect you must restart `vlnd` service.
 
