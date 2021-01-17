@@ -102,6 +102,7 @@ void start_client(const char *network_name, const uint32_t server_addr,
                 /*
                  * EPOLLRDHUP is registered only for hosts.
                  */
+                log_debug("EPOLLRDHUP");
                 h = (struct vln_host *)epoll_event->data.ptr;
                 handle_host_disconnect(h);
             } else if (events[event_i].events & EPOLLIN) {
@@ -138,6 +139,13 @@ static void connect_to_server(const uint32_t server_addr,
 
     if ((_root_host->sock_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
         log_error("failed to create socket error: %s", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+
+    int optval = 1;
+    if (setsockopt(_root_host->sock_fd, SOL_SOCKET, SO_KEEPALIVE, &optval,
+                   sizeof(int)) < 0) {
+        log_error("setting socket options failed - %s", strerror(errno));
         exit(EXIT_FAILURE);
     }
 

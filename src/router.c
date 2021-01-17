@@ -13,6 +13,7 @@
 #include <unistd.h>
 
 #include "router.h"
+#include <rxi_log.h>
 #include <uthash.h>
 #include <utlist.h>
 
@@ -488,7 +489,7 @@ static void *recv_worker(void *arg)
                 HASH_DEL(router->pending_connections, pen_con);
                 timerfd_settime(pen_con->rkinfo->timerfd, 0, &iti, NULL);
                 update_routing_table(router, pen_con->vaddr, pen_con);
-                printf("P2P\n");
+                log_info("P2P");
             }
             pthread_mutex_unlock(&router->pending_connections_lock);
 
