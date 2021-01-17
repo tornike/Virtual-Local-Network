@@ -146,6 +146,11 @@ static struct vln_host *create_host(int fd)
     h->udp_port = 0;
     initialize_packet(&h->rpacket);
 
+    char new_addr_str[20];
+    uint32_t new_addr = htonl(h->vaddr);
+    inet_ntop(AF_INET, &new_addr, new_addr_str, sizeof(new_addr_str));
+    log_debug("giving new host address %s", new_addr_str);
+
     HASH_ADD_INT(_hosts, vaddr, h);
 
     return h;
