@@ -38,6 +38,7 @@ static void serve_router_event(int pipe_fd);
 static void *recv_thread(void *arg);
 static void *send_thread(void *arg);
 static void handle_host_disconnect(struct vln_host *h);
+static void create_socket();
 
 void start_client(const char *network_name, const uint32_t server_addr,
                   const uint16_t server_port, struct vln_adapter *adapter)
@@ -57,6 +58,7 @@ void start_client(const char *network_name, const uint32_t server_addr,
     _root_host->udp_addr = server_addr;
     initialize_packet(&_root_host->rpacket);
 
+    _root_host->sock_fd = -1;
     connect_to_server(server_addr, server_port);
 
     if ((_epoll_fd = epoll_create1(0)) < 0) {
@@ -137,17 +139,7 @@ static void connect_to_server(const uint32_t server_addr,
 
     memset(&server_sockaddr, 0, sizeof(server_sockaddr));
 
-    if ((_root_host->sock_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-        log_error("failed to create socket error: %s", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-
-    int optval = 1;
-    if (setsockopt(_root_host->sock_fd, SOL_SOCKET, SO_KEEPALIVE, &optval,
-                   sizeof(int)) < 0) {
-        log_error("setting socket options failed - %s", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
+    create_socket();
 
     server_sockaddr.sin_family = AF_INET;
     server_sockaddr.sin_addr.s_addr = htonl(server_addr);
@@ -361,4 +353,22 @@ static void *send_thread(void *arg)
         router_send(_router, slot);
     }
     return NULL;
+}
+
+static void create_socket()
+{
+    if (_root_host->sock_fd != -1)
+        close(_root_host->sock_fd);
+
+    if ((_root_host->sock_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        log_error("failed to create socket error: %s", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+
+    int optval = 1;
+    if (setsockopt(_root_host->sock_fd, SOL_SOCKET, SO_KEEPALIVE, &optval,
+                   sizeof(int)) < 0) {
+        log_error("setting socket options failed - %s", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
 }
