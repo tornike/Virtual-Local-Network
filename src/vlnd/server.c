@@ -218,13 +218,13 @@ static void handle_host_disconnect(struct vln_host *h)
         struct vln_host *elem;
         for (elem = _hosts; elem != NULL;
              elem = (struct vln_host *)(elem->hh.next)) {
-            if (elem == _root_host)
+            if (elem == _root_host || elem == h)
                 continue;
             if (send(elem->sock_fd, (void *)spacket,
                      sizeof(struct mngr_packet_header) +
                          sizeof(struct mngr_updatedis_payload),
                      0) != sizeof(spacket)) {
-                log_error("failed to send PEERCONNECTED 1 error: %s",
+                log_error("failed to send UPDATEDIS packet error: %s",
                           strerror(errno));
                 /* Must be handled somehow but process shouldn't die */
                 // exit(EXIT_FAILURE);
@@ -241,7 +241,11 @@ static void serve_packet(struct vln_host *h)
     if (h->rpacket.header->type == CONNECT) {
         log_trace("received connect packet");
         struct mngr_connect_payload *payload =
-            (struct mngr_connect_payload *)payload;
+            (struct mngr_connect_payload *)h->rpacket.payload;
+
+        /* Why this also works??? */
+        // struct mngr_connect_payload *payload =
+        //     (struct mngr_connect_payload *)payload;
 
         if (strcmp((const char *)_network->name, payload->network_name) != 0) {
             send_error(NAME_OR_PASSWOR, h->sock_fd);
