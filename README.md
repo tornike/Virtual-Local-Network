@@ -73,3 +73,5 @@ clients =
 Configuration file is read only ones by vlnd, at startup, so in order for configuration changes
 to take effect you must restart `vlnd` service.
 
+For traffic vln uses udp ephemeral ports, so firewall shouldn't be blocking them.
+
