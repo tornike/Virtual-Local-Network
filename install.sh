@@ -38,16 +38,21 @@ else
 fi
 
 echo "Copying files..."
-echo -n "$VLN_CONFIG_DIR/vln.conf..."
-cp etc/vln.conf $VLN_CONFIG_DIR/vln.conf
-chmod 644 /etc/vln/vln.conf
-echo "Done."
+echo -n "$VLN_CONFIG_DIR/vln.conf... "
+if [ -e $VLN_CONFIG_DIR/vln.conf ]
+then
+    echo "Have not overwritten existing config file."
+else
+    cp etc/vln.conf $VLN_CONFIG_DIR/vln.conf
+    chmod 644 /etc/vln/vln.conf
+    echo "Done."
+fi
 
-echo -n "$VLN_INST_DIR/vlnd..."
+echo -n "$VLN_INST_DIR/vlnd... "
 cp build/vlnd $VLN_INST_DIR/
 echo "Done."
 
-echo -n "$VLN_DAEMON_DIR/vlnd.service..."
+echo -n "$VLN_DAEMON_DIR/vlnd.service... "
 cp vlnd.service $VLN_DAEMON_DIR/
 echo "Done."
 

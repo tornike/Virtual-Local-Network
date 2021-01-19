@@ -277,7 +277,7 @@ void router_remove_connection(struct router *router, uint32_t vaddr)
     pthread_rwlock_wrlock(&router->routing_table_lock);
     con = router->routing_table[key];
     router->routing_table[key] = NULL;
-    if (con != NULL && key == con->vaddr - router->network_addr) {
+    if (con != NULL && con->vaddr == vaddr) {
         isp2p = 1;
     }
     pthread_rwlock_unlock(&router->routing_table_lock);
@@ -677,6 +677,13 @@ static void *keep_alive_worker(void *arg)
                 struct router_event rev;
                 rev.type = PEERDISCONNECTED;
                 rev.ptr = act;
+
+                char addr_str[20];
+                uint32_t addr = htonl(act->vaddr);
+                inet_ntop(AF_INET, &addr, addr_str, sizeof(addr_str));
+                log_debug("router disconnected from %s", addr_str);
+
+                log_debug("sending PEERDISCONNECTED event for %s", addr_str);
 
                 write(router->mngr_pipe_fd, &rev, sizeof(struct router_event));
             }

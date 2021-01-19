@@ -262,20 +262,15 @@ static void serve_router_event(int pipe_fd)
 
     log_info("serving router event");
     if (rev.type == PEERDISCONNECTED) {
-        log_info("recieved PEERDISCONNECTED event");
+        log_debug("received PEERDISCONNECTED event");
 
         struct router_action *act = (struct router_action *)rev.ptr;
-
-        char addr_str[20];
-        uint32_t addr = htonl(act->vaddr);
-        inet_ntop(AF_INET, &addr, addr_str, sizeof(addr_str));
-        log_debug("router disconnected from %s", addr_str);
-
         if (act->vaddr == _root_host->vaddr) {
             log_debug("router disconnected from root host");
             router_send_init(_router, _root_host->vaddr, _root_host->udp_addr,
                              _root_host->udp_port);
         } else {
+            // ??? router_remove_connection(_router, ntohl(rpayload->vaddr));
             router_setup_pyramid(_router, act->vaddr);
         }
         free(act);

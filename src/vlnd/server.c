@@ -318,6 +318,8 @@ static void serve_router_event(int pipe_fd)
 
     log_info("serving router event");
     if (rev.type == PEERCONNECTED) {
+        log_debug("received PEERCONNECTED event");
+
         struct router_action *act = (struct router_action *)rev.ptr;
 
         struct vln_host *curr_host;
@@ -387,6 +389,8 @@ static void serve_router_event(int pipe_fd)
         }
         free(act);
     } else if (rev.type == PEERDISCONNECTED) {
+        log_debug("received PEERDISCONNECTED event");
+
         struct router_action *act = (struct router_action *)rev.ptr;
 
         struct vln_host *curr_host;
