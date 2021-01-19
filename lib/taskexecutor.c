@@ -1,3 +1,25 @@
+/*
+ * Virtual Local Network
+ *
+ * Copyright (C) 2020 VLN authors:
+ *
+ * Tornike Khachidze <tornike@github>
+ * Luka Macharadze <lmach14@github>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ */
 
 #include <pthread.h>
 #include <stdlib.h>
@@ -9,15 +31,13 @@
 
 #define DIE 0
 
-struct task_info_wrapper
-{
+struct task_info_wrapper {
     struct task_info *tinfo;
     struct task_info_wrapper *next;
     struct task_info_wrapper *prev;
 };
 
-struct taskexecutor
-{
+struct taskexecutor {
     Handler handler;
     void *handler_args;
     struct task_info_wrapper *queue;
@@ -32,11 +52,9 @@ void *executor_worker(void *args)
     struct taskexecutor *executor = (struct taskexecutor *)args;
     struct task_info *cur_task_info;
     struct task_info_wrapper *tiw;
-    while (1)
-    {
+    while (1) {
         pthread_mutex_lock(&executor->queue_lock);
-        if (executor->queue == NULL)
-        {
+        if (executor->queue == NULL) {
             pthread_cond_wait(&executor->queue_cond, &executor->queue_lock);
         }
         tiw = executor->queue;
@@ -45,13 +63,10 @@ void *executor_worker(void *args)
         pthread_mutex_unlock(&executor->queue_lock);
 
         free(tiw);
-        if (cur_task_info->operation == DIE)
-        {
+        if (cur_task_info->operation == DIE) {
             free(cur_task_info);
             break;
-        }
-        else
-        {
+        } else {
             executor->handler(executor->handler_args, cur_task_info);
             free(cur_task_info);
         }
