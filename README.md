@@ -43,7 +43,7 @@ servers =
 		bind_address = "0.0.0.0"
 		bind_port = "33508"
 	},
-  {
+	{
 		network_name = "network2"
 		network_subnet = "192.168.10.0/24"
 		bind_address = "0.0.0.0"
@@ -62,7 +62,7 @@ clients =
 		address = "192.168.33.17" # here should be publicly accesible address of the server
 		port = "33508"
 	},
-  {
+	{
 		network_name = "network2"
 		address = "192.168.33.17"
 		port = "33509"
